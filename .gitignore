@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.*
+env.txt
+
+# backend
+securemove-backend/node_modules/
+securemove-backend/npm-debug.log*
+securemove-backend/Wit-airtel-money-python-sdk-main/
+
+# flutter
+securemove/.dart_tool/
+securemove/build/
+securemove/.flutter-plugins
+securemove/.flutter-plugins-dependencies
+securemove/.pub-cache/
+securemove/.pub/
+
+# IDE
+.idea/
+.vscode/dart-defines.json
+
+# system
+.DS_Store
+Thumbs.db
