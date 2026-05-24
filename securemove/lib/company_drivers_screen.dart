@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'theme/app_colors.dart';
 
 import 'auth_service.dart';
 import 'company_service.dart';
@@ -131,7 +132,7 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                     Text(
                       'Create a company driver record using the new backend driver endpoint.',
                       style: const TextStyle(
-                        color: Color(0xFF60708E),
+                        color: AppColors.textSecondary,
                         height: 1.35,
                       ),
                     ),
@@ -264,7 +265,7 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
               child: const Text(
                 'This screen is the first admin/operations rebuild from the cloned repo: live driver records, company-scoped listing, and add-driver flow.',
                 style: TextStyle(
-                  color: Color(0xFF60708E),
+                  color: AppColors.textSecondary,
                   height: 1.4,
                 ),
               ),
@@ -275,13 +276,13 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                 margin: const EdgeInsets.only(bottom: 16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF1F1),
+                  color: AppColors.dangerLight,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   _errorMessage!,
                   style: const TextStyle(
-                    color: Color(0xFF7F2B2B),
+                    color: AppColors.dangerText,
                     height: 1.35,
                   ),
                 ),
@@ -316,12 +317,12 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                         width: 52,
                         height: 52,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEFF4FF),
+                          color: AppColors.brandTint,
                           borderRadius: BorderRadius.circular(18),
                         ),
                         child: const Icon(
                           Icons.badge_outlined,
-                          color: Color(0xFF284BA8),
+                          color: AppColors.brandPrimary,
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -340,7 +341,7 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                             Text(
                               'License: ${driver.licenseNumber}',
                               style: const TextStyle(
-                                color: Color(0xFF60708E),
+                                color: AppColors.textSecondary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -349,7 +350,7 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                               Text(
                                 driver.phoneNumber!,
                                 style: const TextStyle(
-                                  color: Color(0xFF60708E),
+                                  color: AppColors.textSecondary,
                                 ),
                               ),
                             ],
@@ -358,7 +359,7 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                               Text(
                                 driver.email!,
                                 style: const TextStyle(
-                                  color: Color(0xFF60708E),
+                                  color: AppColors.textSecondary,
                                 ),
                               ),
                             ],
@@ -372,16 +373,16 @@ class _CompanyDriversScreenState extends State<CompanyDriversScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: driver.isActive
-                              ? const Color(0xFFEAFBF4)
-                              : const Color(0xFFFFF1F1),
+                              ? AppColors.successTint
+                              : AppColors.dangerLight,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           driver.isActive ? 'Active' : 'Inactive',
                           style: TextStyle(
                             color: driver.isActive
-                                ? const Color(0xFF0F7A4C)
-                                : const Color(0xFF9E3A3A),
+                                ? AppColors.successText
+                                : AppColors.dangerText,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -413,7 +414,7 @@ class _DriversEmptyState extends StatelessWidget {
           Icon(
             Icons.person_off_outlined,
             size: 42,
-            color: Color(0xFF284BA8),
+            color: AppColors.brandPrimary,
           ),
           SizedBox(height: 12),
           Text(
@@ -428,7 +429,7 @@ class _DriversEmptyState extends StatelessWidget {
             'Use the add button to create the first driver record for this company.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Color(0xFF60708E),
+              color: AppColors.textSecondary,
               height: 1.4,
             ),
           ),

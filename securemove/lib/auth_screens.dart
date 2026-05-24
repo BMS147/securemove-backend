@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
 import 'driver_workspace_screen.dart';
-import 'landing_screen.dart';
 import 'screens/company/company_dashboard_screen.dart';
 import 'screens/conductor/conductor_scanner_screen.dart';
 import 'screens/super_admin/admin_dashboard_screen.dart';
+import 'theme/app_colors.dart';
+import 'theme/breakpoints.dart';
+import 'widgets/traveler_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -121,7 +123,9 @@ class _LoginScreenState extends State<LoginScreen> {
       case 'driver':
         return const DriverWorkspaceScreen();
       default:
-        return const LandingScreen();
+        // Travelers go straight into the bottom-nav shell —
+        // Home / Bookings / Profile reachable from any tab.
+        return const TravelerShell();
     }
   }
 
@@ -168,13 +172,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     height: 54,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(18),
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF1B3F92), Color(0xFF4D83FF)],
-                      ),
+                      gradient: AppColors.brandGradientShort,
                     ),
                     child: const Icon(
                       Icons.shield_outlined,
-                      color: Colors.white,
+                      color: AppColors.textOnBrand,
                       size: 28,
                     ),
                   ),
@@ -192,7 +194,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.4,
-                      color: Color(0xFF6E7C99),
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 28),
@@ -257,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       const Text(
                         "Don't have an account?",
-                        style: TextStyle(color: Color(0xFF6E7C99)),
+                        style: TextStyle(color: AppColors.textSecondary),
                       ),
                       TextButton(
                         onPressed: _isSubmitting ? null : _openCreateAccount,
@@ -421,7 +423,7 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                     style: TextStyle(
                       fontSize: 15,
                       height: 1.35,
-                      color: Color(0xFF6E7C99),
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -496,21 +498,21 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEFF4FF),
+                      color: AppColors.brandTint,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: const Row(
                       children: [
                         Icon(
                           Icons.auto_awesome_outlined,
-                          color: Color(0xFF3667F5),
+                          color: AppColors.brandVivid,
                         ),
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             'Use at least 8 characters with uppercase, lowercase, and a number.',
                             style: TextStyle(
-                              color: Color(0xFF53627F),
+                              color: AppColors.textSecondary,
                               height: 1.35,
                             ),
                           ),
@@ -553,61 +555,175 @@ class _AuthScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Breakpoints.isDesktop(context);
+
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF17337A), Color(0xFF325FE3), Color(0xFF7BC8FF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+      body: isDesktop
+          ? _DesktopSplit(panel: panel, showBackButton: showBackButton)
+          : _MobileLayout(panel: panel, showBackButton: showBackButton),
+    );
+  }
+}
+
+/// Desktop: marketing panel on the left, form on the right.
+class _DesktopSplit extends StatelessWidget {
+  const _DesktopSplit({required this.panel, required this.showBackButton});
+
+  final Widget panel;
+  final bool showBackButton;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // ── Marketing left half ──────────────────────────────────────────
+        Expanded(
+          flex: 5,
+          child: Container(
+            decoration: const BoxDecoration(gradient: AppColors.brandGradient),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -80,
+                  right: -30,
+                  child: _BackdropOrb(
+                    size: 280,
+                    colors: [
+                      Colors.white.withOpacity(0.20),
+                      Colors.white.withOpacity(0.06),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  bottom: -120,
+                  left: -50,
+                  child: _BackdropOrb(
+                    size: 320,
+                    colors: [
+                      Colors.white.withOpacity(0.14),
+                      Colors.white.withOpacity(0.04),
+                    ],
+                  ),
+                ),
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(56, 56, 56, 56),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: const Icon(
+                                Icons.shield_outlined,
+                                color: AppColors.textOnBrand,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'SecureMove',
+                              style: TextStyle(
+                                color: AppColors.textOnBrand,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Secure intercity\ntravel, simplified.',
+                              style: TextStyle(
+                                color: AppColors.textOnBrand,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w800,
+                                height: 1.1,
+                                letterSpacing: -1.5,
+                              ),
+                            ),
+                            SizedBox(height: 16),
+                            SizedBox(
+                              width: 460,
+                              child: Text(
+                                'Search routes, compare operators, and check in with a QR — all from one place.',
+                                style: TextStyle(
+                                  color: AppColors.textOnBrandSoft,
+                                  fontSize: 16,
+                                  height: 1.55,
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: 28),
+                            _FeatureRow(
+                              icon: Icons.directions_bus_filled_rounded,
+                              text: 'Live schedules across 12 Zambian cities',
+                            ),
+                            SizedBox(height: 14),
+                            _FeatureRow(
+                              icon: Icons.lock_outline_rounded,
+                              text: 'Mobile money + card payments, encrypted',
+                            ),
+                            SizedBox(height: 14),
+                            _FeatureRow(
+                              icon: Icons.qr_code_2_rounded,
+                              text: 'Digital tickets with QR check-in',
+                            ),
+                          ],
+                        ),
+                        const Text(
+                          '© SecureMove. All rights reserved.',
+                          style: TextStyle(
+                            color: AppColors.textOnBrandSoft,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: -80,
-              right: -30,
-              child: _BackdropOrb(
-                size: 220,
-                colors: [
-                  Colors.white.withOpacity(0.20),
-                  Colors.white.withOpacity(0.06),
-                ],
-              ),
-            ),
-            Positioned(
-              bottom: -120,
-              left: -50,
-              child: _BackdropOrb(
-                size: 260,
-                colors: [
-                  Colors.white.withOpacity(0.14),
-                  Colors.white.withOpacity(0.04),
-                ],
-              ),
-            ),
-            SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
+        // ── Form right half ──────────────────────────────────────────────
+        Expanded(
+          flex: 4,
+          child: Container(
+            color: AppColors.background,
+            child: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(48),
+                child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
+                    constraints: const BoxConstraints(maxWidth: 460),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (showBackButton)
+                        if (showBackButton) ...[
                           Align(
                             alignment: Alignment.centerLeft,
-                            child: IconButton.filledTonal(
+                            child: TextButton.icon(
                               onPressed: () => Navigator.pop(context),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.white.withOpacity(0.18),
-                                foregroundColor: Colors.white,
+                              icon: const Icon(Icons.arrow_back_rounded),
+                              label: const Text('Back'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
                               ),
-                              icon: const Icon(Icons.arrow_back_ios_new_rounded),
                             ),
                           ),
-                        if (showBackButton) const SizedBox(height: 16),
+                          const SizedBox(height: 12),
+                        ],
                         panel,
                       ],
                     ),
@@ -615,8 +731,113 @@ class _AuthScaffold extends StatelessWidget {
                 ),
               ),
             ),
-          ],
+          ),
         ),
+      ],
+    );
+  }
+}
+
+class _FeatureRow extends StatelessWidget {
+  const _FeatureRow({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 16, color: AppColors.textOnBrand),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          text,
+          style: const TextStyle(
+            color: AppColors.textOnBrandSoft,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Mobile: gradient backdrop + centered card (original layout).
+class _MobileLayout extends StatelessWidget {
+  const _MobileLayout({required this.panel, required this.showBackButton});
+
+  final Widget panel;
+  final bool showBackButton;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.brandGradient),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -80,
+            right: -30,
+            child: _BackdropOrb(
+              size: 220,
+              colors: [
+                Colors.white.withOpacity(0.20),
+                Colors.white.withOpacity(0.06),
+              ],
+            ),
+          ),
+          Positioned(
+            bottom: -120,
+            left: -50,
+            child: _BackdropOrb(
+              size: 260,
+              colors: [
+                Colors.white.withOpacity(0.14),
+                Colors.white.withOpacity(0.04),
+              ],
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (showBackButton)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: IconButton.filledTonal(
+                            onPressed: () => Navigator.pop(context),
+                            style: IconButton.styleFrom(
+                              backgroundColor:
+                                  Colors.white.withOpacity(0.18),
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(
+                                Icons.arrow_back_ios_new_rounded),
+                          ),
+                        ),
+                      if (showBackButton) const SizedBox(height: 16),
+                      panel,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

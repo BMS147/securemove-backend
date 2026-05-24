@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'theme/app_colors.dart';
 
 import 'auth_service.dart';
 import 'company_service.dart';
@@ -113,7 +114,7 @@ class _CompanySchedulesScreenState extends State<CompanySchedulesScreen> {
                     const SizedBox(height: 8),
                     Text(
                       'Departure ${schedule.departureTime}',
-                      style: const TextStyle(color: Color(0xFF60708E)),
+                      style: const TextStyle(color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 18),
                     TextField(
@@ -215,7 +216,7 @@ class _CompanySchedulesScreenState extends State<CompanySchedulesScreen> {
                   child: ListTile(
                     leading: Icon(
                       schedule.active ? Icons.route_rounded : Icons.route_outlined,
-                      color: const Color(0xFF284BA8),
+                      color: AppColors.brandPrimary,
                     ),
                     title: Text(
                       schedule.routeLabel,
@@ -260,7 +261,7 @@ class _MessagePanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: isError ? const Color(0xFFFFF1F1) : Colors.white,
+        color: isError ? AppColors.dangerLight : Colors.white,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Text(message, style: const TextStyle(height: 1.35)),

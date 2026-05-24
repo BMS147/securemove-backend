@@ -254,7 +254,7 @@ class _DriverHeader extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF17357E), Color(0xFF3868F3)],
+          colors: [AppColors.brandDeep, AppColors.brandVivid],
         ),
         borderRadius: BorderRadius.circular(28),
       ),
@@ -369,7 +369,7 @@ class _TripCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: _panelDecoration(
-        border: selected ? const Color(0xFF3667F5) : Colors.transparent,
+        border: selected ? AppColors.brandVivid : Colors.transparent,
       ),
       child: ListTile(
         onTap: onTap,
@@ -404,7 +404,7 @@ class _TicketTile extends StatelessWidget {
       child: ListTile(
         leading: Icon(
           ticket.isUsed ? Icons.check_circle_rounded : Icons.confirmation_number_outlined,
-          color: ticket.isUsed ? const Color(0xFF0F7A4C) : const Color(0xFF284BA8),
+          color: ticket.isUsed ? AppColors.successText : AppColors.brandPrimary,
         ),
         title: Text(
           ticket.passengerName,
@@ -416,7 +416,7 @@ class _TicketTile extends StatelessWidget {
         trailing: Text(
           ticket.status.toUpperCase(),
           style: TextStyle(
-            color: ticket.isUsed ? const Color(0xFF0F7A4C) : const Color(0xFF284BA8),
+            color: ticket.isUsed ? AppColors.successText : AppColors.brandPrimary,
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -443,14 +443,14 @@ class _EmptyPanel extends StatelessWidget {
       decoration: _panelDecoration(),
       child: Column(
         children: [
-          Icon(icon, size: 40, color: const Color(0xFF284BA8)),
+          Icon(icon, size: 40, color: AppColors.brandPrimary),
           const SizedBox(height: 12),
           Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFF60708E), height: 1.4),
+            style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
           ),
         ],
       ),

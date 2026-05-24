@@ -1,0 +1,67 @@
+/**
+ * bookingFulfillment.js
+ *
+ * Single place that marks a booking as paid and issues tickets.
+ * Called by both the payment status polling endpoint and the Lenco webhook
+ * so that a payment confirmed via webhook is reflected exactly the same way
+ * as one confirmed via polling.
+ */
+
+const pool = require('../db');
+
+/**
+ * Mark a booking as paid and create its ticket if not already done.
+ * Safe to call multiple times — all writes are idempotent.
+ *
+ * @param {number} bookingId
+ * @param {string} financialTransactionId  Optional provider transaction ID to store.
+ * @returns {Promise<void>}
+ */
+async function fulfillPaidBooking(bookingId, financialTransactionId = null) {
+  await pool.query(
+    `UPDATE bookings
+     SET status = 'paid', updated_at = NOW()
+     WHERE booking_id = $1 AND status <> 'paid'`,
+    [bookingId]
+  );
+
+  await ensureTicketExists(bookingId);
+}
+
+/**
+ * Create one ticket for a booking if none exists yet.
+ * Uses ON CONFLICT DO NOTHING so it's safe to call repeatedly.
+ */
+async function ensureTicketExists(bookingId) {
+  const existing = await pool.query(
+    'SELECT ticket_id FROM tickets WHERE booking_id = $1 LIMIT 1',
+    [bookingId]
+  );
+
+  if (existing.rowCount > 0) return;
+
+  const bookingResult = await pool.query(
+    `SELECT b.booking_id, b.booking_reference, u.name AS passenger_name
+     FROM bookings b
+     INNER JOIN users u ON u.user_id = b.user_id
+     WHERE b.booking_id = $1`,
+    [bookingId]
+  );
+
+  if (bookingResult.rowCount === 0) return;
+
+  const booking = bookingResult.rows[0];
+  await pool.query(
+    `INSERT INTO tickets (booking_id, passenger_name, seat_number, ticket_number, qr_code_hash, status)
+     VALUES ($1, $2, 'AUTO-1', $3, $4, 'active')
+     ON CONFLICT (booking_id, seat_number) DO NOTHING`,
+    [
+      booking.booking_id,
+      booking.passenger_name || 'SecureMove Passenger',
+      `SMT-${booking.booking_reference}`,
+      booking.booking_reference,
+    ]
+  );
+}
+
+module.exports = { fulfillPaidBooking };

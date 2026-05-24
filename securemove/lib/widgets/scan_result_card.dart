@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_colors.dart';
 
@@ -40,7 +39,7 @@ class ScanResultCard extends StatelessWidget {
           Text(
             config.title,
             textAlign: TextAlign.center,
-            style: GoogleFonts.inter(
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
               fontWeight: FontWeight.w800,
@@ -87,7 +86,7 @@ class ScanResultCard extends StatelessWidget {
           message: 'Passenger may board',
           icon: Icons.check_circle_rounded,
           background: AppColors.success,
-          shadow: Color(0xFF059669),
+          shadow: AppColors.successDeep,
         );
       case 'ALREADY_USED':
         return const _ScanResultConfig(

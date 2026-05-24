@@ -1,15 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
 import 'booking_service.dart';
 import 'bus.dart';
 import 'mobile_money_service.dart';
-import 'my_bookings_screen.dart';
 import 'stripe_payment_service.dart';
 import 'theme/app_colors.dart';
 import 'ticket_screen.dart';
 import 'widgets/error_banner.dart';
-import 'widgets/workspace_header.dart';
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key, required this.bus});
@@ -21,294 +21,117 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
-  final MobileMoneyService _mobileMoney = MobileMoneyService.instance;
-  final StripePaymentService _stripe = StripePaymentService.instance;
-  bool _isProcessingCardPayment = false;
-  bool _isProcessingMobileMoney = false;
-  String? _processingMobileMoneyMethod;
-  int? _activeBookingId;
-  String? _activeBookingReference;
-  MobileMoneyConfig? _mobileMoneyConfig;
-  String? _mobileMoneyConfigError;
+  // ── Trip configuration ─────────────────────────────────────────────────────
   DateTime _travelDate = DateTime.now();
   int _ticketCount = 1;
+
+  // ── Processing state ───────────────────────────────────────────────────────
+  bool _isProcessingCard = false;
+  bool _isProcessingMobile = false;
+  String? _activeMobileMethod;
+
+  // ── Booking cache ──────────────────────────────────────────────────────────
+  int? _activeBookingId;
+  String? _activeBookingRef;
+
+  // ── Mobile money config ────────────────────────────────────────────────────
+  MobileMoneyConfig? _momoConfig;
+  bool _momoLoading = true;
+  String? _momoError;
+
+  final _mobileMoney = MobileMoneyService.instance;
+  final _stripe = StripePaymentService.instance;
 
   @override
   void initState() {
     super.initState();
-    _loadMobileMoneyConfig();
+    _loadMomoConfig();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final mobileMoneyAvailable = _mobileMoneyConfig?.hasAnyProvider == true;
-    final methods = [
-      if (mobileMoneyAvailable) ...[
-        (
-          title: 'MTN MoMo',
-          subtitle: 'Pay from your MTN mobile money wallet',
-          icon: Icons.phone_android_rounded,
-          accent: AppColors.accentLight,
-          enabled: _mobileMoneyConfig?.isMockMode == true ||
-              _mobileMoneyConfig?.mtn.enabled == true,
-        ),
-        (
-          title: 'Airtel Money',
-          subtitle: 'Pay from your Airtel Money account',
-          icon: Icons.sim_card_rounded,
-          accent: const Color(0xFFFFF7E8),
-          enabled: _mobileMoneyConfig?.isMockMode == true ||
-              _mobileMoneyConfig?.airtel.enabled == true,
-        ),
-      ],
-      (
-        title: 'Credit / Debit Card',
-        subtitle: _stripe.isReady
-            ? 'Pay by card through Stripe'
-            : 'Add your Stripe key to unlock card checkout',
-        icon: Icons.credit_card_rounded,
-        accent: const Color(0xFFEAFBF4),
-        enabled: _stripe.isReady,
-      ),
-    ];
+  // ── Derived helpers ────────────────────────────────────────────────────────
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(150),
-          child: Column(
-            children: [
-              WorkspaceHeader(
-                title: 'Tickets',
-                subtitle: 'Book and ride securely',
-                actionIcon: Icons.receipt_long_rounded,
-                onAction: () {},
-              ),
-              const TabBar(
-                tabs: [
-                  Tab(
-                    icon: Icon(Icons.confirmation_number_outlined),
-                    text: 'Book',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.receipt_long_outlined),
-                    text: 'My tickets',
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        body: TabBarView(
-          children: [
-            ListView(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-              children: [
-                if (_mobileMoneyConfigError != null ||
-                    _mobileMoneyConfig?.hasAnyProvider == false) ...[
-                  const ErrorBanner(
-                    title: 'Mobile money unavailable',
-                    message:
-                        'Mobile money temporarily unavailable, try again later.',
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [AppColors.primary, AppColors.accent],
-                    ),
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Booking summary',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      _SummaryRow(label: 'Operator', value: widget.bus.company),
-                      _SummaryRow(
-                        label: 'Route',
-                        value:
-                            '${widget.bus.origin} to ${widget.bus.destination}',
-                      ),
-                      _SummaryRow(label: 'Departure', value: widget.bus.time),
-                      _SummaryRow(label: 'Travel date', value: _dateLabel),
-                      _SummaryRow(
-                        label: _ticketCount == 1 ? 'Ticket' : 'Tickets',
-                        value: '$_ticketCount x ${widget.bus.price}',
-                      ),
-                      _SummaryRow(label: 'Total', value: _totalPriceLabel),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _TripDetailsCard(
-                  travelDateLabel: _dateLabel,
-                  ticketCount: _ticketCount,
-                  maxTickets: _maxTickets,
-                  onPickDate: _pickTravelDate,
-                  onDecreaseTickets: _ticketCount > 1
-                      ? () => _changeTicketCount(_ticketCount - 1)
-                      : null,
-                  onIncreaseTickets: _ticketCount < _maxTickets
-                      ? () => _changeTicketCount(_ticketCount + 1)
-                      : null,
-                ),
-                const SizedBox(height: 22),
-                const Text(
-                  'Payment methods',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                for (final method in methods)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x0A000000),
-                          blurRadius: 12,
-                          offset: Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 8,
-                      ),
-                      enabled: method.enabled,
-                      leading: Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          color: method.accent,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Icon(
-                          method.icon,
-                          color: AppColors.accent,
-                        ),
-                      ),
-                      title: Text(
-                        method.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          method.subtitle,
-                          style: const TextStyle(height: 1.35),
-                        ),
-                      ),
-                      trailing: _isProcessing(method.title)
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.2,
-                              ),
-                            )
-                          : method.enabled
-                              ? const Icon(
-                                  Icons.arrow_forward_ios_rounded,
-                                  size: 18,
-                                )
-                              : const Icon(
-                                  Icons.lock_outline_rounded,
-                                  size: 18,
-                                ),
-                      onTap: () => _onMethodSelected(method.title),
-                    ),
-                  ),
-              ],
-            ),
-            const MyBookingsView(),
-          ],
-        ),
-      ),
-    );
+  int get _maxTickets => widget.bus.effectiveSeatsLeft.clamp(1, 10);
+
+  double get _unitPrice {
+    final cleaned = widget.bus.price.replaceAll(RegExp(r'[^0-9.,]'), '');
+    final normalized = cleaned.contains(',') && !cleaned.contains('.')
+        ? cleaned.replaceAll(',', '.')
+        : cleaned.replaceAll(',', '');
+    return double.tryParse(normalized) ?? 0;
   }
 
-  int get _maxTickets {
-    final seats = widget.bus.effectiveSeatsLeft;
-    if (seats < 1) {
-      return 1;
-    }
+  double get _total => _unitPrice * _ticketCount;
 
-    return seats > 10 ? 10 : seats;
-  }
-
-  double get _bookingTotalAmount =>
-      _priceToAmount(widget.bus.price) * _ticketCount;
-
-  String get _totalPriceLabel => 'K${_bookingTotalAmount.toStringAsFixed(2)}';
+  String get _totalLabel => 'K${_total.toStringAsFixed(2)}';
 
   String get _dateLabel {
-    final day = _travelDate.day.toString().padLeft(2, '0');
-    final month = _travelDate.month.toString().padLeft(2, '0');
-    return '$day/$month/${_travelDate.year}';
+    final d = _travelDate;
+    return '${d.day.toString().padLeft(2, '0')}/'
+        '${d.month.toString().padLeft(2, '0')}/'
+        '${d.year}';
   }
 
-  void _changeTicketCount(int value) {
-    setState(() {
-      _ticketCount = value.clamp(1, _maxTickets);
-      _clearActiveBooking();
-    });
+  bool _isMomoMethodEnabled(String method) {
+    final cfg = _momoConfig;
+    if (cfg == null) return false;
+    if (cfg.isMockMode) return true;
+    return method == 'MTN MoMo' ? cfg.mtn.enabled : cfg.airtel.enabled;
   }
 
-  Future<void> _pickTravelDate() async {
+  // ── Config loading ─────────────────────────────────────────────────────────
+
+  Future<void> _loadMomoConfig() async {
+    try {
+      final cfg = await _mobileMoney.getConfig();
+      if (!mounted) return;
+      setState(() {
+        _momoConfig = cfg;
+        _momoLoading = false;
+        _momoError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _momoLoading = false;
+        _momoError = 'Mobile money temporarily unavailable.';
+      });
+    }
+  }
+
+  // ── Date / ticket helpers ──────────────────────────────────────────────────
+
+  Future<void> _pickDate() async {
     final today = DateTime.now();
-    final selectedDate = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: _travelDate.isBefore(today) ? today : _travelDate,
       firstDate: DateTime(today.year, today.month, today.day),
       lastDate: today.add(const Duration(days: 365)),
     );
-
-    if (selectedDate == null) {
-      return;
-    }
-
+    if (picked == null) return;
     setState(() {
-      _travelDate = selectedDate;
-      _clearActiveBooking();
+      _travelDate = picked;
+      _clearBookingCache();
     });
   }
 
-  void _clearActiveBooking() {
-    _activeBookingId = null;
-    _activeBookingReference = null;
+  void _adjustTickets(int delta) {
+    final next = (_ticketCount + delta).clamp(1, _maxTickets);
+    if (next == _ticketCount) return;
+    setState(() {
+      _ticketCount = next;
+      _clearBookingCache();
+    });
   }
 
-  Future<void> _onMethodSelected(String method) async {
-    if (_ticketCount < 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose at least one ticket.')),
-      );
-      return;
-    }
+  void _clearBookingCache() {
+    _activeBookingId = null;
+    _activeBookingRef = null;
+  }
 
-    if (method == 'MTN MoMo' || method == 'Airtel Money') {
-      await _completeMobileMoneyPayment(method);
-      return;
-    }
+  // ── Payment entry points ───────────────────────────────────────────────────
 
+  Future<void> _onPayWithCard() async {
     if (!_stripe.isReady) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(_stripe.missingConfigurationMessage)),
@@ -316,136 +139,97 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
-    setState(() => _isProcessingCardPayment = true);
-
+    setState(() => _isProcessingCard = true);
     try {
-      await _reserveBookingIfAvailable();
+      if (widget.bus.hasLiveTripId && _activeBookingRef == null) {
+        await _ensureBooking();
+      }
       await _stripe.payForBus(
         widget.bus,
-        amount: _bookingTotalAmount,
+        amount: _total,
         ticketCount: _ticketCount,
         travelDate: _travelDate,
       );
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => TicketScreen(
             bus: widget.bus,
-            bookingReference: _activeBookingReference,
-            method: 'Stripe (test mode)',
+            bookingReference: _activeBookingRef,
+            method: 'Credit / Debit Card',
             travelDate: _travelDate,
             ticketCount: _ticketCount,
           ),
         ),
       );
-    } on PaymentException catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+    } on PaymentException catch (e) {
+      if (!mounted) return;
+      _showError(e.message);
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Card payment failed. Please try again.');
     } finally {
-      if (mounted) {
-        setState(() => _isProcessingCardPayment = false);
-      }
+      if (mounted) setState(() => _isProcessingCard = false);
     }
   }
 
-  Future<void> _loadMobileMoneyConfig() async {
-    try {
-      final config = await _mobileMoney.getConfig();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _mobileMoneyConfig = config;
-        _mobileMoneyConfigError = null;
-      });
-    } on AuthException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _mobileMoneyConfigError = error.message);
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(
-        () => _mobileMoneyConfigError =
-            'Mobile money temporarily unavailable, try again later.',
-      );
-    }
-  }
+  Future<void> _onPayWithMobile(String method) async {
+    final phone = await _collectPhone(method);
+    if (phone == null || !mounted) return;
 
-  bool _isProcessing(String method) {
-    if (method == 'Credit / Debit Card') {
-      return _isProcessingCardPayment;
-    }
-
-    if (method == 'MTN MoMo' || method == 'Airtel Money') {
-      return _isProcessingMobileMoney && _processingMobileMoneyMethod == method;
-    }
-
-    return false;
-  }
-
-  Future<void> _completeMobileMoneyPayment(String method) async {
-    final phoneNumber = await _collectMobileMoneyDetails(method);
-    if (phoneNumber == null || !mounted) {
-      return;
-    }
+    // Cancellation is coordinated via this Completer. The dialog's "Cancel"
+    // button completes it, and the polling loop races against it so it exits
+    // immediately instead of waiting out the next 2-second delay.
+    final cancelSignal = Completer<void>();
 
     setState(() {
-      _isProcessingMobileMoney = true;
-      _processingMobileMoneyMethod = method;
+      _isProcessingMobile = true;
+      _activeMobileMethod = method;
     });
 
-    _showMobileMoneyProcessingSheet(
+    _showProcessingDialog(
       method: method,
-      phoneNumber: phoneNumber,
+      phone: phone,
+      onCancel: () {
+        if (!cancelSignal.isCompleted) cancelSignal.complete();
+      },
     );
 
     try {
       final booking = await _ensureBooking();
+      if (cancelSignal.isCompleted) return;
+
       final initiated = await _mobileMoney.initiatePayment(
         bookingId: booking.bookingId,
         provider: method == 'MTN MoMo' ? 'mtn' : 'airtel',
-        phoneNumber: phoneNumber,
+        phoneNumber: phone,
         amount: booking.totalAmount,
       );
-      final settled = await _waitForPaymentSettlement(initiated.payment.paymentId);
-      if (!mounted) {
-        return;
-      }
+      if (cancelSignal.isCompleted) return;
 
+      final settled = await _pollUntilSettled(
+        initiated.payment.paymentId,
+        cancelSignal: cancelSignal,
+      );
+      if (!mounted || cancelSignal.isCompleted) return;
+
+      // Dialog is still open — close it before navigating.
       Navigator.of(context, rootNavigator: true).pop();
 
       if (settled.payment.isPending) {
         throw const PaymentException(
-          'Payment is still pending approval. Please confirm the request on your phone and try again in a moment.',
+          'No confirmation received. Please check your phone for the approval prompt and try again.',
         );
       }
-
       if (settled.payment.isFailed) {
+        final reason = settled.message;
         throw PaymentException(
-          settled.message ??
-              'Mobile money payment failed. Please check your wallet and try again.',
+          reason != null && reason.isNotEmpty
+              ? 'Payment failed: $reason'
+              : 'Payment was declined. Check your wallet balance and try again.',
         );
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${method == 'MTN MoMo' ? 'MTN MoMo' : method} payment approved. Your QR ticket is ready.',
-          ),
-        ),
-      );
 
       await Navigator.pushReplacement(
         context,
@@ -459,96 +243,218 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         ),
       );
+    } on AuthException catch (e) {
+      if (!mounted || cancelSignal.isCompleted) return;
+      _closeDialogSafely();
+      _showError(e.message);
+    } on PaymentException catch (e) {
+      if (!mounted || cancelSignal.isCompleted) return;
+      _closeDialogSafely();
+      _showError(e.message);
+    } catch (e) {
+      if (!mounted || cancelSignal.isCompleted) return;
+      _closeDialogSafely();
+      _showError('Payment failed. Please try again.');
     } finally {
       if (mounted) {
         setState(() {
-          _isProcessingMobileMoney = false;
-          _processingMobileMoneyMethod = null;
+          _isProcessingMobile = false;
+          _activeMobileMethod = null;
         });
       }
     }
   }
 
-  Future<String?> _collectMobileMoneyDetails(String method) async {
-    final controller = TextEditingController();
-    String? validationMessage;
+  // ── Booking helper ─────────────────────────────────────────────────────────
+
+  Future<BookingRecord> _ensureBooking() async {
+    if (_activeBookingId != null && _activeBookingRef != null) {
+      return BookingRecord(
+        bookingId: _activeBookingId!,
+        tripId: widget.bus.tripId ?? 0,
+        bookingReference: _activeBookingRef!,
+        totalAmount: _total,
+        status: 'reserved',
+        createdAt: DateTime.now(),
+      );
+    }
+
+    if (!widget.bus.hasLiveTripId) {
+      throw const PaymentException(
+        'This route is schedule-only and does not support mobile money yet. '
+        'Please pay by card.',
+      );
+    }
+
+    final booking = await BookingService.instance.reserveBooking(
+      tripId: widget.bus.tripId!,
+      totalAmount: _total,
+    );
+    _activeBookingId = booking.bookingId;
+    _activeBookingRef = booking.bookingReference;
+    return booking;
+  }
+
+  // ── Payment status polling ─────────────────────────────────────────────────
+
+  Future<MobileMoneyResult> _pollUntilSettled(
+    int paymentId, {
+    required Completer<void> cancelSignal,
+  }) async {
+    var result = await _mobileMoney.getPaymentStatus(paymentId);
+
+    // Poll up to 30 times × 4 s = 2 minutes. Mobile money approvals (especially
+    // MTN USSD prompts) can take 30–60 s for the customer to respond.
+    for (var i = 0; i < 30; i++) {
+      if (!result.payment.isPending || cancelSignal.isCompleted) return result;
+
+      // Race the wait against the cancel signal so cancellation is immediate.
+      await Future.any([
+        Future<void>.delayed(const Duration(seconds: 4)),
+        cancelSignal.future,
+      ]);
+
+      if (cancelSignal.isCompleted) return result;
+
+      result = await _mobileMoney.getPaymentStatus(paymentId);
+    }
+
+    return result;
+  }
+
+  // ── UI helpers ─────────────────────────────────────────────────────────────
+
+  void _closeDialogSafely() {
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.danger,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        ),
+      ),
+    );
+  }
+
+  // ── Phone collection sheet ─────────────────────────────────────────────────
+
+  Future<String?> _collectPhone(String method) async {
+    final ctrl = TextEditingController();
+    String? validationMsg;
 
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
+      builder: (sheetCtx) {
         return StatefulBuilder(
-          builder: (context, setModalState) {
+          builder: (_, setModal) {
             Future<void> submit() async {
-              final raw = controller.text.trim();
-              final digitsOnly = raw.replaceAll(RegExp(r'[^0-9+]'), '');
-
-              if (digitsOnly.length < 10) {
-                setModalState(() {
-                  validationMessage = 'Enter a valid mobile money number.';
-                });
+              final digits = ctrl.text.trim().replaceAll(RegExp(r'[^0-9+]'), '');
+              if (digits.length < 10) {
+                setModal(() => validationMsg = 'Enter a valid mobile money number.');
                 return;
               }
-
-              Navigator.of(sheetContext).pop(digitsOnly);
+              Navigator.of(sheetCtx).pop(digits);
             }
 
-            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+            final inset = MediaQuery.of(sheetCtx).viewInsets.bottom;
 
             return Padding(
-              padding: EdgeInsets.fromLTRB(18, 18, 18, bottomInset + 18),
+              padding: EdgeInsets.fromLTRB(16, 16, 16, inset + 16),
               child: Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(28),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      method,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    Row(
+                      children: [
+                        Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: AppColors.brandTint,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.phone_iphone_rounded,
+                            color: AppColors.brandPrimary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                method,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                'Enter the number to receive the approval prompt.',
+                                style: TextStyle(
+                                  color: AppColors.textSecondary,
+                                  height: 1.35,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Enter the number that should receive the approval prompt.',
-                      style: TextStyle(
-                        color: Colors.blueGrey.shade700,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 20),
                     TextField(
-                      controller: controller,
+                      controller: ctrl,
                       keyboardType: TextInputType.phone,
                       autofocus: true,
                       decoration: InputDecoration(
                         labelText: 'Phone number',
-                        hintText: method == 'MTN MoMo'
-                            ? '0977 123 456'
-                            : '0967 123 456',
-                        errorText: validationMessage,
-                        prefixIcon: const Icon(Icons.phone_iphone_rounded),
+                        hintText: method == 'MTN MoMo' ? '0961 234 567' : '0971 234 567',
+                        errorText: validationMsg,
+                        prefixIcon: const Icon(Icons.phone_rounded),
                       ),
                       onChanged: (_) {
-                        if (validationMessage != null) {
-                          setModalState(() => validationMessage = null);
+                        if (validationMsg != null) {
+                          setModal(() => validationMsg = null);
                         }
                       },
                       onSubmitted: (_) => submit(),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 20),
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            onPressed: () => Navigator.of(sheetCtx).pop(),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textSecondary,
+                              side: const BorderSide(color: AppColors.border),
+                              minimumSize: const Size.fromHeight(52),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
                             child: const Text('Cancel'),
                           ),
                         ),
@@ -556,7 +462,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: submit,
-                            child: const Text('Continue'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.brandVivid,
+                              foregroundColor: AppColors.textOnBrand,
+                              minimumSize: const Size.fromHeight(52),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text(
+                              'Continue',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
                           ),
                         ),
                       ],
@@ -570,33 +487,30 @@ class _PaymentScreenState extends State<PaymentScreen> {
       },
     );
 
-    controller.dispose();
+    ctrl.dispose();
     return result;
   }
 
-  void _showMobileMoneyProcessingSheet({
+  // ── Processing dialog ──────────────────────────────────────────────────────
+
+  void _showProcessingDialog({
     required String method,
-    required String phoneNumber,
+    required String phone,
+    required VoidCallback onCancel,
   }) {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (dialogCtx) {
         return Dialog(
           backgroundColor: Colors.transparent,
           elevation: 0,
           child: Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(28),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x100F2554),
-                  blurRadius: 28,
-                  offset: Offset(0, 16),
-                ),
-              ],
+              boxShadow: const [AppColors.elevatedShadow],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -605,30 +519,52 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   width: 72,
                   height: 72,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEFF4FF),
-                    borderRadius: BorderRadius.circular(24),
+                    color: AppColors.brandTint,
+                    borderRadius: BorderRadius.circular(22),
                   ),
                   child: const Padding(
                     padding: EdgeInsets.all(18),
-                    child: CircularProgressIndicator(strokeWidth: 3),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      color: AppColors.brandPrimary,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 20),
                 Text(
-                  '$method is processing',
+                  'Waiting for approval',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 22,
+                    fontSize: 20,
                     fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
-                  'Waiting for approval on $phoneNumber. This usually only takes a moment.',
+                  '$method sent a prompt to $phone.\nApprove it on your phone to complete the payment.\n\nThis may take up to 2 minutes.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    color: Color(0xFF5E6C87),
-                    height: 1.4,
+                    color: AppColors.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Divider(color: AppColors.border),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: () {
+                    onCancel();
+                    Navigator.of(dialogCtx).pop();
+                  },
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancel payment'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.danger,
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ],
@@ -639,103 +575,260 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  Future<void> _reserveBookingIfAvailable() async {
-    if (!widget.bus.hasLiveTripId || _activeBookingReference != null) {
-      return;
-    }
+  // ── Build ──────────────────────────────────────────────────────────────────
 
-    await _ensureBooking();
-  }
-
-  Future<BookingRecord> _ensureBooking() async {
-    if (_activeBookingId != null && _activeBookingReference != null) {
-      return BookingRecord(
-        bookingId: _activeBookingId!,
-        tripId: widget.bus.tripId ?? 0,
-        bookingReference: _activeBookingReference!,
-        totalAmount: _bookingTotalAmount,
-        status: 'reserved',
-        createdAt: DateTime.now(),
-      );
-    }
-
-    if (!widget.bus.hasLiveTripId) {
-      throw const PaymentException(
-        'This route is still schedule-only. Live mobile money requires a trip-backed search result.',
-      );
-    }
-
-    final booking = await BookingService.instance.reserveBooking(
-      tripId: widget.bus.tripId!,
-      totalAmount: _bookingTotalAmount,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.pop(context),
+          color: AppColors.textPrimary,
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Text(
+              'Book ticket',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            Text(
+              'Review and pay',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 600),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+            children: [
+              _BusSummaryCard(bus: widget.bus),
+              const SizedBox(height: 16),
+              _TripDetailsCard(
+                dateLabel: _dateLabel,
+                ticketCount: _ticketCount,
+                maxTickets: _maxTickets,
+                onPickDate: _pickDate,
+                onDecrease: _ticketCount > 1 ? () => _adjustTickets(-1) : null,
+                onIncrease: _ticketCount < _maxTickets ? () => _adjustTickets(1) : null,
+              ),
+              const SizedBox(height: 16),
+              _OrderTotalCard(
+                ticketCount: _ticketCount,
+                unitPrice: widget.bus.price,
+                totalLabel: _totalLabel,
+              ),
+              const SizedBox(height: 20),
+              _PaymentMethodsSection(
+                momoLoading: _momoLoading,
+                momoError: _momoError,
+                momoConfig: _momoConfig,
+                stripe: _stripe,
+                isProcessingCard: _isProcessingCard,
+                isProcessingMobile: _isProcessingMobile,
+                activeMobileMethod: _activeMobileMethod,
+                isMomoEnabled: _isMomoMethodEnabled,
+                onPayWithCard: _onPayWithCard,
+                onPayWithMobile: _onPayWithMobile,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    _activeBookingId = booking.bookingId;
-    _activeBookingReference = booking.bookingReference;
-    return booking;
-  }
-
-  Future<MobileMoneyResult> _waitForPaymentSettlement(int paymentId) async {
-    MobileMoneyResult latest = await _mobileMoney.getPaymentStatus(paymentId);
-
-    for (var attempt = 0; attempt < 7; attempt++) {
-      if (!latest.payment.isPending) {
-        return latest;
-      }
-
-      await Future<void>.delayed(const Duration(seconds: 2));
-      latest = await _mobileMoney.getPaymentStatus(paymentId);
-    }
-
-    return latest;
-  }
-
-  double _priceToAmount(String rawPrice) {
-    final cleaned = rawPrice.replaceAll(RegExp(r'[^0-9.,]'), '');
-    final normalized = cleaned.contains(',') && !cleaned.contains('.')
-        ? cleaned.replaceAll(',', '.')
-        : cleaned.replaceAll(',', '');
-    final parsed = double.tryParse(normalized);
-    if (parsed == null) {
-      throw PaymentException(
-        'Could not convert the ticket price "$rawPrice" into a booking amount.',
-      );
-    }
-
-    return parsed;
   }
 }
 
-class _TripDetailsCard extends StatelessWidget {
-  const _TripDetailsCard({
-    required this.travelDateLabel,
-    required this.ticketCount,
-    required this.maxTickets,
-    required this.onPickDate,
-    required this.onDecreaseTickets,
-    required this.onIncreaseTickets,
-  });
+// ============================================================
+// Bus summary card
+// ============================================================
 
-  final String travelDateLabel;
-  final int ticketCount;
-  final int maxTickets;
-  final VoidCallback onPickDate;
-  final VoidCallback? onDecreaseTickets;
-  final VoidCallback? onIncreaseTickets;
+class _BusSummaryCard extends StatelessWidget {
+  const _BusSummaryCard({required this.bus});
+
+  final Bus bus;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: AppColors.brandGradientShort,
         borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x100F2554),
-            blurRadius: 24,
-            offset: Offset(0, 14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.directions_bus_filled_rounded,
+                  color: AppColors.textOnBrand,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bus.company,
+                      style: const TextStyle(
+                        color: AppColors.textOnBrand,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${bus.origin} → ${bus.destination}',
+                      style: const TextStyle(
+                        color: AppColors.textOnBrandSoft,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          const Divider(color: Colors.white24, height: 1),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _SummaryPill(
+                icon: Icons.schedule_rounded,
+                label: bus.time,
+              ),
+              const SizedBox(width: 10),
+              _SummaryPill(
+                icon: Icons.timelapse_rounded,
+                label: bus.formattedDuration,
+              ),
+              const SizedBox(width: 10),
+              _SummaryPill(
+                icon: Icons.event_seat_rounded,
+                label: '${bus.effectiveSeatsLeft} seats',
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Price per ticket',
+                style: TextStyle(
+                  color: AppColors.textOnBrandSoft,
+                  fontSize: 13,
+                ),
+              ),
+              Text(
+                bus.price,
+                style: const TextStyle(
+                  color: AppColors.textOnBrand,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SummaryPill extends StatelessWidget {
+  const _SummaryPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppColors.textOnBrand),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textOnBrand,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// Trip details card
+// ============================================================
+
+class _TripDetailsCard extends StatelessWidget {
+  const _TripDetailsCard({
+    required this.dateLabel,
+    required this.ticketCount,
+    required this.maxTickets,
+    required this.onPickDate,
+    required this.onDecrease,
+    required this.onIncrease,
+  });
+
+  final String dateLabel;
+  final int ticketCount;
+  final int maxTickets;
+  final VoidCallback onPickDate;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [AppColors.cardShadow],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -743,115 +836,111 @@ class _TripDetailsCard extends StatelessWidget {
           const Text(
             'Trip details',
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 16,
               fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 14),
+          // Date picker
           InkWell(
             onTap: onPickDate,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
             child: Ink(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FBFF),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFDCE6FA)),
+                color: AppColors.brandWash,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.brandBorder),
               ),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.calendar_month_rounded,
-                    color: Color(0xFF2A54C6),
-                  ),
+                  const Icon(Icons.calendar_month_rounded,
+                      color: AppColors.brandPrimary),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Travel date',
+                          'TRAVEL DATE',
                           style: TextStyle(
-                            color: Color(0xFF7D8AA3),
-                            fontSize: 12,
+                            color: AppColors.textMuted,
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
+                            letterSpacing: 0.6,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Text(
-                          travelDateLabel,
+                          dateLabel,
                           style: const TextStyle(
-                            fontSize: 16,
+                            fontSize: 15,
                             fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(
-                    Icons.edit_calendar_rounded,
-                    color: Color(0xFF7D8AA3),
-                  ),
+                  const Icon(Icons.edit_calendar_rounded,
+                      size: 18, color: AppColors.textMuted),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          // Ticket counter
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FBFF),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFDCE6FA)),
+              color: AppColors.brandWash,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.brandBorder),
             ),
             child: Row(
               children: [
-                const Icon(
-                  Icons.groups_2_rounded,
-                  color: Color(0xFF2A54C6),
-                ),
+                const Icon(Icons.groups_2_rounded,
+                    color: AppColors.brandPrimary),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Passengers / tickets',
+                        'PASSENGERS',
                         style: TextStyle(
-                          color: Color(0xFF7D8AA3),
-                          fontSize: 12,
+                          color: AppColors.textMuted,
+                          fontSize: 10,
                           fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Text(
                         '$ticketCount of $maxTickets available',
                         style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ],
                   ),
                 ),
-                _StepperButton(
-                  icon: Icons.remove_rounded,
-                  onPressed: onDecreaseTickets,
-                ),
+                _Stepper(icon: Icons.remove_rounded, onPressed: onDecrease),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   child: Text(
                     '$ticketCount',
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
-                _StepperButton(
-                  icon: Icons.add_rounded,
-                  onPressed: onIncreaseTickets,
-                ),
+                _Stepper(icon: Icons.add_rounded, onPressed: onIncrease),
               ],
             ),
           ),
@@ -861,11 +950,8 @@ class _TripDetailsCard extends StatelessWidget {
   }
 }
 
-class _StepperButton extends StatelessWidget {
-  const _StepperButton({
-    required this.icon,
-    required this.onPressed,
-  });
+class _Stepper extends StatelessWidget {
+  const _Stepper({required this.icon, required this.onPressed});
 
   final IconData icon;
   final VoidCallback? onPressed;
@@ -876,42 +962,319 @@ class _StepperButton extends StatelessWidget {
       onPressed: onPressed,
       icon: Icon(icon),
       style: IconButton.styleFrom(
-        fixedSize: const Size(40, 40),
-        backgroundColor: const Color(0xFFEFF4FF),
-        disabledBackgroundColor: const Color(0xFFF1F3F8),
+        fixedSize: const Size(38, 38),
+        backgroundColor: AppColors.brandTint,
+        foregroundColor: AppColors.brandPrimary,
+        disabledBackgroundColor: AppColors.neutralTint,
       ),
     );
   }
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({
-    required this.label,
-    required this.value,
+// ============================================================
+// Order total card
+// ============================================================
+
+class _OrderTotalCard extends StatelessWidget {
+  const _OrderTotalCard({
+    required this.ticketCount,
+    required this.unitPrice,
+    required this.totalLabel,
   });
 
-  final String label;
-  final String value;
+  final int ticketCount;
+  final String unitPrice;
+  final String totalLabel;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.brandTint,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Color(0xDFFFFFFF)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'ORDER TOTAL',
+                  style: TextStyle(
+                    color: AppColors.brandPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$ticketCount × $unitPrice',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
           Text(
-            value,
+            totalLabel,
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: AppColors.brandDeep,
+              letterSpacing: -0.5,
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// Payment methods section
+// ============================================================
+
+class _PaymentMethodsSection extends StatelessWidget {
+  const _PaymentMethodsSection({
+    required this.momoLoading,
+    required this.momoError,
+    required this.momoConfig,
+    required this.stripe,
+    required this.isProcessingCard,
+    required this.isProcessingMobile,
+    required this.activeMobileMethod,
+    required this.isMomoEnabled,
+    required this.onPayWithCard,
+    required this.onPayWithMobile,
+  });
+
+  final bool momoLoading;
+  final String? momoError;
+  final MobileMoneyConfig? momoConfig;
+  final StripePaymentService stripe;
+  final bool isProcessingCard;
+  final bool isProcessingMobile;
+  final String? activeMobileMethod;
+  final bool Function(String method) isMomoEnabled;
+  final VoidCallback onPayWithCard;
+  final Future<void> Function(String method) onPayWithMobile;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasMomo = momoConfig?.hasAnyProvider == true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Choose payment method',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Select how you would like to pay for your ticket.',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        const SizedBox(height: 14),
+
+        // Mobile money unavailable banner
+        if (momoError != null || (!momoLoading && !hasMomo))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: ErrorBanner(
+              title: 'Mobile money unavailable',
+              message: momoError ??
+                  'No mobile money providers are active right now.',
+              onRetry: null,
+            ),
+          ),
+
+        // While config is loading show a placeholder
+        if (momoLoading) ...[
+          _MethodTile(
+            icon: Icons.phone_android_rounded,
+            accent: AppColors.accentLight,
+            title: 'MTN MoMo',
+            subtitle: 'Checking availability…',
+            loading: true,
+            enabled: false,
+            onTap: null,
+          ),
+          const SizedBox(height: 12),
+          _MethodTile(
+            icon: Icons.sim_card_rounded,
+            accent: AppColors.warningTint,
+            title: 'Airtel Money',
+            subtitle: 'Checking availability…',
+            loading: true,
+            enabled: false,
+            onTap: null,
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Mobile money methods (shown once config is loaded)
+        if (!momoLoading && hasMomo) ...[
+          _MethodTile(
+            icon: Icons.phone_android_rounded,
+            accent: AppColors.accentLight,
+            title: 'MTN MoMo',
+            subtitle: isMomoEnabled('MTN MoMo')
+                ? 'Pay from your MTN mobile money wallet'
+                : 'MTN MoMo is not enabled on this account',
+            enabled: isMomoEnabled('MTN MoMo') && !isProcessingMobile,
+            loading: isProcessingMobile && activeMobileMethod == 'MTN MoMo',
+            onTap: isMomoEnabled('MTN MoMo') && !isProcessingMobile
+                ? () => onPayWithMobile('MTN MoMo')
+                : null,
+          ),
+          const SizedBox(height: 12),
+          _MethodTile(
+            icon: Icons.sim_card_rounded,
+            accent: AppColors.warningTint,
+            title: 'Airtel Money',
+            subtitle: isMomoEnabled('Airtel Money')
+                ? 'Pay from your Airtel Money account'
+                : 'Airtel Money is not enabled on this account',
+            enabled: isMomoEnabled('Airtel Money') && !isProcessingMobile,
+            loading: isProcessingMobile && activeMobileMethod == 'Airtel Money',
+            onTap: isMomoEnabled('Airtel Money') && !isProcessingMobile
+                ? () => onPayWithMobile('Airtel Money')
+                : null,
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Card payment
+        _MethodTile(
+          icon: Icons.credit_card_rounded,
+          accent: AppColors.successTint,
+          title: 'Credit / Debit Card',
+          subtitle: stripe.isReady
+              ? 'Pay securely by card via Stripe'
+              : 'Add your Stripe key to enable card payments',
+          enabled: stripe.isReady && !isProcessingCard && !isProcessingMobile,
+          loading: isProcessingCard,
+          onTap: stripe.isReady && !isProcessingCard && !isProcessingMobile
+              ? onPayWithCard
+              : null,
+        ),
+      ],
+    );
+  }
+}
+
+class _MethodTile extends StatelessWidget {
+  const _MethodTile({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    required this.enabled,
+    required this.loading,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final bool loading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [AppColors.cardShadow],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Container(
+                    width: 50,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(icon, color: AppColors.brandPrimary, size: 24),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (loading)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: AppColors.brandPrimary,
+                      ),
+                    )
+                  else if (enabled)
+                    const Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 16,
+                      color: AppColors.textMuted,
+                    )
+                  else
+                    const Icon(
+                      Icons.lock_outline_rounded,
+                      size: 16,
+                      color: AppColors.textMuted,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

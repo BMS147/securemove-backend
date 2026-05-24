@@ -3,9 +3,15 @@ import 'package:flutter/material.dart';
 import 'auth_service.dart';
 import 'bus_list_screen.dart';
 import 'profile_screen.dart';
+import 'theme/app_colors.dart';
+import 'theme/breakpoints.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.embedded = false});
+
+  /// When true, the screen is mounted inside [TravelerShell] — we hide the
+  /// avatar tap-target since the bottom nav already exposes the profile tab.
+  final bool embedded;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -98,280 +104,336 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDesktop = Breakpoints.isDesktop(context);
 
-    return Scaffold(
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+    final greeting = FutureBuilder<UserProfile?>(
+      future: AuthService.instance.getCurrentUserProfile(),
+      builder: (context, snapshot) {
+        final profile = snapshot.data;
+        return Row(
           children: [
-            FutureBuilder<UserProfile?>(
-              future: AuthService.instance.getCurrentUserProfile(),
-              builder: (context, snapshot) {
-                final profile = snapshot.data;
-                return Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Plan a smoother trip',
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            profile == null
-                                ? 'Book faster, pay securely, and keep every ticket in one place.'
-                                : 'Welcome back, ${profile.displayName}. Your next ride is a few taps away.',
-                            style: const TextStyle(
-                              color: Color(0xFF6C7894),
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: _openProfile,
-                      child: Ink(
-                        width: 58,
-                        height: 58,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF1B3F92), Color(0xFF4D83FF)],
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x223667F5),
-                              blurRadius: 18,
-                              offset: Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Center(
-                          child: Text(
-                            profile?.initials ?? 'SM',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF17357E), Color(0xFF3564F2), Color(0xFF72C8FF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(30),
-              ),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.18),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: const Text(
-                          'Secure ticketing',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'From city to seat number in minutes.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
+                  Text(
+                    'Plan a smoother trip',
+                    style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      height: 1.15,
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Search routes, compare operators, and pay with the method that works best for you.',
-                    style: TextStyle(
-                      color: Color(0xE8FFFFFF),
-                      height: 1.5,
+                  const SizedBox(height: 6),
+                  Text(
+                    profile == null
+                        ? 'Book faster, pay securely, and keep every ticket in one place.'
+                        : 'Welcome back, ${profile.displayName}. Your next ride is a few taps away.',
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.4,
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: const [
-                      _HeroMetric(value: '5', label: 'Operators'),
-                      SizedBox(width: 12),
-                      _HeroMetric(value: '24/7', label: 'Booking'),
-                      SizedBox(width: 12),
-                      _HeroMetric(value: 'QR', label: 'Tickets'),
-                    ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 22),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x100F2554),
-                    blurRadius: 32,
-                    offset: Offset(0, 18),
+            if (!widget.embedded) ...[
+              const SizedBox(width: 14),
+              InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: _openProfile,
+                child: Ink(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    gradient: AppColors.brandGradientShort,
+                    boxShadow: const [AppColors.cardShadow],
                   ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  _LocationField(
-                    label: 'From',
-                    hint: 'Starting city',
-                    icon: Icons.trip_origin_rounded,
-                    controller: _fromController,
-                    cities: _supportedCities,
-                  ),
-                  const SizedBox(height: 14),
-                  _LocationField(
-                    label: 'To',
-                    hint: 'Destination city',
-                    icon: Icons.location_on_outlined,
-                    controller: _toController,
-                    cities: _supportedCities,
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFF8FBFF), Color(0xFFEFF4FF)],
+                  child: Center(
+                    child: Text(
+                      profile?.initials ?? 'SM',
+                      style: const TextStyle(
+                        color: AppColors.textOnBrand,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
                       ),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(
-                          Icons.travel_explore_rounded,
-                          color: Color(0xFF2F59CF),
-                        ),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Choose your cities from the dropdown, then search for available buses.',
-                            style: TextStyle(
-                              color: Color(0xFF60708E),
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F7FD),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _swapLocations,
-                            icon: const Icon(Icons.swap_vert_rounded),
-                            label: const Text('Swap route'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF244AA8),
-                              backgroundColor: Colors.white,
-                              side: BorderSide.none,
-                              minimumSize: const Size.fromHeight(54),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _searchBuses,
-                            icon: const Icon(Icons.search_rounded),
-                            label: const Text('Search'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
               ),
+            ],
+          ],
+        );
+      },
+    );
+
+    final heroCard = Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: AppColors.brandGradient,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              borderRadius: BorderRadius.circular(999),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Popular routes',
+            child: const Text(
+              'Secure ticketing',
               style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
+                color: AppColors.textOnBrand,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
+          ),
+          const SizedBox(height: 18),
+          const Text(
+            'From city to seat number in minutes.',
+            style: TextStyle(
+              color: AppColors.textOnBrand,
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              height: 1.15,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Search routes, compare operators, and pay with the method that works best for you.',
+            style: TextStyle(color: AppColors.textOnBrandSoft, height: 1.5),
+          ),
+          const SizedBox(height: 20),
+          const Row(
+            children: [
+              _HeroMetric(value: '5', label: 'Operators'),
+              SizedBox(width: 12),
+              _HeroMetric(value: '24/7', label: 'Booking'),
+              SizedBox(width: 12),
+              _HeroMetric(value: 'QR', label: 'Tickets'),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final searchCard = Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [AppColors.elevatedShadow],
+      ),
+      child: Column(
+        children: [
+          _LocationField(
+            label: 'From',
+            hint: 'Starting city',
+            icon: Icons.trip_origin_rounded,
+            controller: _fromController,
+            cities: _supportedCities,
+            onChanged: () => setState(() {}),
+          ),
+          const SizedBox(height: 14),
+          _LocationField(
+            label: 'To',
+            hint: 'Destination city',
+            icon: Icons.location_on_outlined,
+            controller: _toController,
+            cities: _supportedCities,
+            onChanged: () => setState(() {}),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [AppColors.brandWash, AppColors.brandTint],
+              ),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Row(
               children: [
-                _RouteSuggestion(
-                  title: 'Lusaka to Kabwe',
-                  subtitle: 'Fast morning departures',
-                  accent: const Color(0xFFEFF4FF),
-                  onTap: () => _applyRoute('Lusaka', 'Kabwe'),
+                Icon(
+                  Icons.travel_explore_rounded,
+                  color: AppColors.brandPrimary,
                 ),
-                _RouteSuggestion(
-                  title: 'Ndola to Kitwe',
-                  subtitle: 'Frequent weekday trips',
-                  accent: const Color(0xFFFFF5E6),
-                  onTap: () => _applyRoute('Ndola', 'Kitwe'),
-                ),
-                _RouteSuggestion(
-                  title: 'Livingstone to Lusaka',
-                  subtitle: 'Evening comfort coaches',
-                  accent: const Color(0xFFEAFBF4),
-                  onTap: () => _applyRoute('Livingstone', 'Lusaka'),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Choose your cities from the dropdown, then search for available buses.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ],
             ),
-          ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppColors.neutralTint,
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _swapLocations,
+                    icon: const Icon(Icons.swap_vert_rounded),
+                    label: const Text('Swap route'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.brandPrimary,
+                      backgroundColor: AppColors.surface,
+                      side: BorderSide.none,
+                      minimumSize: const Size.fromHeight(54),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _searchBuses,
+                    icon: const Icon(Icons.search_rounded),
+                    label: const Text('Search'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.brandVivid,
+                      foregroundColor: AppColors.textOnBrand,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final popularRoutes = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Popular routes',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (isDesktop)
+          Column(
+            children: [
+              _RouteSuggestion(
+                title: 'Lusaka to Kabwe',
+                subtitle: 'Fast morning departures',
+                accent: AppColors.brandTint,
+                onTap: () => _applyRoute('Lusaka', 'Kabwe'),
+                full: true,
+              ),
+              const SizedBox(height: 12),
+              _RouteSuggestion(
+                title: 'Ndola to Kitwe',
+                subtitle: 'Frequent weekday trips',
+                accent: AppColors.warningTint,
+                onTap: () => _applyRoute('Ndola', 'Kitwe'),
+                full: true,
+              ),
+              const SizedBox(height: 12),
+              _RouteSuggestion(
+                title: 'Livingstone to Lusaka',
+                subtitle: 'Evening comfort coaches',
+                accent: AppColors.successTint,
+                onTap: () => _applyRoute('Livingstone', 'Lusaka'),
+                full: true,
+              ),
+            ],
+          )
+        else
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _RouteSuggestion(
+                title: 'Lusaka to Kabwe',
+                subtitle: 'Fast morning departures',
+                accent: AppColors.brandTint,
+                onTap: () => _applyRoute('Lusaka', 'Kabwe'),
+              ),
+              _RouteSuggestion(
+                title: 'Ndola to Kitwe',
+                subtitle: 'Frequent weekday trips',
+                accent: AppColors.warningTint,
+                onTap: () => _applyRoute('Ndola', 'Kitwe'),
+              ),
+              _RouteSuggestion(
+                title: 'Livingstone to Lusaka',
+                subtitle: 'Evening comfort coaches',
+                accent: AppColors.successTint,
+                onTap: () => _applyRoute('Livingstone', 'Lusaka'),
+              ),
+            ],
+          ),
+      ],
+    );
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: Breakpoints.contentMaxWidth),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                isDesktop ? 32 : 20,
+                16,
+                isDesktop ? 32 : 20,
+                28,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  greeting,
+                  const SizedBox(height: 24),
+                  if (isDesktop)
+                    // Desktop: hero | search side by side, popular routes below
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(flex: 5, child: heroCard),
+                              const SizedBox(width: 20),
+                              Expanded(flex: 4, child: searchCard),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        popularRoutes,
+                      ],
+                    )
+                  else ...[
+                    heroCard,
+                    const SizedBox(height: 22),
+                    searchCard,
+                    const SizedBox(height: 24),
+                    popularRoutes,
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -385,6 +447,7 @@ class _LocationField extends StatelessWidget {
     required this.icon,
     required this.controller,
     required this.cities,
+    required this.onChanged,
   });
 
   final String label;
@@ -392,6 +455,7 @@ class _LocationField extends StatelessWidget {
   final IconData icon;
   final TextEditingController controller;
   final List<String> cities;
+  final VoidCallback onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -401,9 +465,9 @@ class _LocationField extends StatelessWidget {
       child: Ink(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FBFF),
+          color: AppColors.brandWash,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFFDCE6FA)),
+          border: Border.all(color: AppColors.brandBorder),
           boxShadow: const [
             BoxShadow(
               color: Color(0x0D244AA8),
@@ -419,11 +483,11 @@ class _LocationField extends StatelessWidget {
               height: 48,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFFEFF4FF), Color(0xFFDDE8FF)],
+                  colors: [AppColors.brandTint, Color(0xFFDDE8FF)],
                 ),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Icon(icon, color: const Color(0xFF2A54C6), size: 22),
+              child: Icon(icon, color: AppColors.brandPrimary, size: 22),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -433,7 +497,7 @@ class _LocationField extends StatelessWidget {
                   Text(
                     label,
                     style: const TextStyle(
-                      color: Color(0xFF7D8AA3),
+                      color: AppColors.textSecondary,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
@@ -445,8 +509,8 @@ class _LocationField extends StatelessWidget {
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
                       color: controller.text.trim().isEmpty
-                          ? const Color(0xFF94A0B8)
-                          : const Color(0xFF15306B),
+                          ? AppColors.textMuted
+                          : AppColors.brandDeep,
                     ),
                   ),
                 ],
@@ -457,12 +521,12 @@ class _LocationField extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: Color(0xFF7D8AA3),
+                color: AppColors.textMuted,
               ),
             ),
           ],
@@ -502,15 +566,9 @@ class _LocationField extends StatelessWidget {
                 constraints: const BoxConstraints(maxHeight: 520),
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(30),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1A244AA8),
-                      blurRadius: 32,
-                      offset: Offset(0, 18),
-                    ),
-                  ],
+                  boxShadow: const [AppColors.elevatedShadow],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -522,10 +580,10 @@ class _LocationField extends StatelessWidget {
                           width: 46,
                           height: 46,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFEFF4FF),
+                            color: AppColors.brandTint,
                             borderRadius: BorderRadius.circular(16),
                           ),
-                          child: Icon(icon, color: const Color(0xFF2A54C6)),
+                          child: Icon(icon, color: AppColors.brandPrimary),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -543,7 +601,7 @@ class _LocationField extends StatelessWidget {
                               const Text(
                                 'Search and pick a route point from the list below.',
                                 style: TextStyle(
-                                  color: Color(0xFF6C7894),
+                                  color: AppColors.textSecondary,
                                   height: 1.35,
                                 ),
                               ),
@@ -580,7 +638,7 @@ class _LocationField extends StatelessWidget {
                                 child: Text(
                                   'No matching cities found.',
                                   style: TextStyle(
-                                    color: Color(0xFF6C7894),
+                                    color: AppColors.textSecondary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -597,8 +655,8 @@ class _LocationField extends StatelessWidget {
 
                                 return Material(
                                   color: isSelected
-                                      ? const Color(0xFFEFF4FF)
-                                      : const Color(0xFFF8FBFF),
+                                      ? AppColors.brandTint
+                                      : AppColors.brandWash,
                                   borderRadius: BorderRadius.circular(20),
                                   child: InkWell(
                                     borderRadius: BorderRadius.circular(20),
@@ -615,7 +673,7 @@ class _LocationField extends StatelessWidget {
                                             isSelected
                                                 ? Icons.check_circle_rounded
                                                 : Icons.location_city_rounded,
-                                            color: const Color(0xFF2A54C6),
+                                            color: AppColors.brandPrimary,
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
@@ -648,7 +706,7 @@ class _LocationField extends StatelessWidget {
 
     if (selectedCity != null) {
       controller.text = selectedCity;
-      (context as Element).markNeedsBuild();
+      onChanged();
     }
   }
 }
@@ -676,7 +734,7 @@ class _HeroMetric extends StatelessWidget {
             Text(
               value,
               style: const TextStyle(
-                color: Colors.white,
+                color: AppColors.textOnBrand,
                 fontWeight: FontWeight.w800,
                 fontSize: 18,
               ),
@@ -685,7 +743,7 @@ class _HeroMetric extends StatelessWidget {
             Text(
               label,
               style: const TextStyle(
-                color: Color(0xE8FFFFFF),
+                color: AppColors.textOnBrandSoft,
                 fontSize: 12,
               ),
             ),
@@ -702,6 +760,7 @@ class _RouteSuggestion extends StatelessWidget {
     required this.subtitle,
     required this.accent,
     required this.onTap,
+    this.full = false,
   });
 
   final String title;
@@ -709,8 +768,70 @@ class _RouteSuggestion extends StatelessWidget {
   final Color accent;
   final VoidCallback onTap;
 
+  /// When true, the card stretches to full width and uses a horizontal layout
+  /// (icon | text | chevron). Used on desktop where vertical stacking wastes space.
+  final bool full;
+
   @override
   Widget build(BuildContext context) {
+    if (full) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: accent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.alt_route_rounded,
+                  color: AppColors.brandPrimary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                color: AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(22),
@@ -724,7 +845,7 @@ class _RouteSuggestion extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.alt_route_rounded, color: Color(0xFF244AA8)),
+            const Icon(Icons.alt_route_rounded, color: AppColors.brandPrimary),
             const SizedBox(height: 16),
             Text(
               title,
@@ -737,7 +858,7 @@ class _RouteSuggestion extends StatelessWidget {
             Text(
               subtitle,
               style: const TextStyle(
-                color: Color(0xFF687792),
+                color: AppColors.textSecondary,
                 height: 1.4,
               ),
             ),

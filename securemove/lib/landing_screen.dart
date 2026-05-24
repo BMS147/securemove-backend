@@ -1,44 +1,68 @@
 import 'package:flutter/material.dart';
 
-import 'home_screen.dart';
+import 'theme/app_colors.dart';
+import 'theme/breakpoints.dart';
+import 'widgets/traveler_shell.dart';
 
+/// Marketing landing page (public deep-link target).
+///
+/// Most travelers skip this — the login flow routes them directly into
+/// [TravelerShell]. Useful for sharing a "preview the app" URL.
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
 
-  void _openRouteSearch(BuildContext context) {
+  void _openShell(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => const TravelerShell()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDesktop = Breakpoints.isDesktop(context);
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFFF4F7FB), Color(0xFFE8F0FF), Color(0xFFD8E6FF)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: AppColors.surfaceGradient),
         child: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            padding: EdgeInsets.fromLTRB(
+              isDesktop ? 48 : 20,
+              isDesktop ? 32 : 16,
+              isDesktop ? 48 : 20,
+              28,
+            ),
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1120),
+                constraints: const BoxConstraints(
+                  maxWidth: Breakpoints.contentMaxWidth,
+                ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildIntro(theme),
-                    const SizedBox(height: 24),
-                    _HeroBusCard(
-                      onBookTrip: () => _openRouteSearch(context),
-                    ),
+                    if (isDesktop)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(flex: 5, child: _Intro(theme: theme)),
+                          const SizedBox(width: 32),
+                          Expanded(
+                            flex: 6,
+                            child: _HeroBusCard(
+                              onBookTrip: () => _openShell(context),
+                            ),
+                          ),
+                        ],
+                      )
+                    else ...[
+                      _Intro(theme: theme),
+                      const SizedBox(height: 24),
+                      _HeroBusCard(onBookTrip: () => _openShell(context)),
+                    ],
+                    const SizedBox(height: 48),
+                    _FeatureGrid(isDesktop: isDesktop),
                   ],
                 ),
               ),
@@ -48,43 +72,58 @@ class LandingScreen extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildIntro(ThemeData theme) {
+// ===========================================================================
+// Intro column (text + pills)
+// ===========================================================================
+
+class _Intro extends StatelessWidget {
+  const _Intro({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = Breakpoints.isDesktop(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppColors.surface,
             borderRadius: BorderRadius.circular(999),
           ),
           child: const Text(
             'Secure intercity travel',
             style: TextStyle(
-              color: Color(0xFF244AA8),
+              color: AppColors.brandPrimary,
               fontWeight: FontWeight.w700,
             ),
           ),
         ),
         const SizedBox(height: 20),
         Text(
-          'Welcome to SecureMove',
-          style: theme.textTheme.displaySmall?.copyWith(
+          'Welcome to\nSecureMove',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: isDesktop ? 56 : 36,
             fontWeight: FontWeight.w800,
             height: 1.05,
+            letterSpacing: -1.5,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         const Text(
-          'Start from the home page, tap the bus card, and head straight into route search when you are ready to book.',
+          'Search routes, compare operators, and pay securely — your next trip is a few taps away.',
           style: TextStyle(
             fontSize: 16,
-            color: Color(0xFF60708E),
-            height: 1.5,
+            color: AppColors.textSecondary,
+            height: 1.55,
           ),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 24),
         const Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -93,10 +132,7 @@ class LandingScreen extends StatelessWidget {
               icon: Icons.directions_bus_filled_rounded,
               label: 'Bus booking',
             ),
-            _InfoPill(
-              icon: Icons.route_rounded,
-              label: 'Route search',
-            ),
+            _InfoPill(icon: Icons.route_rounded, label: 'Route search'),
             _InfoPill(
               icon: Icons.verified_user_rounded,
               label: 'Secure checkout',
@@ -108,10 +144,125 @@ class LandingScreen extends StatelessWidget {
   }
 }
 
-class _HeroBusCard extends StatelessWidget {
-  const _HeroBusCard({
-    required this.onBookTrip,
+// ===========================================================================
+// Feature grid (desktop) / column (mobile)
+// ===========================================================================
+
+class _FeatureGrid extends StatelessWidget {
+  const _FeatureGrid({required this.isDesktop});
+
+  final bool isDesktop;
+
+  @override
+  Widget build(BuildContext context) {
+    const features = [
+      (
+        icon: Icons.qr_code_2_rounded,
+        title: 'Digital tickets',
+        body: 'A QR code per seat. No printing, no paperwork.',
+      ),
+      (
+        icon: Icons.payments_outlined,
+        title: 'Mobile money + cards',
+        body: 'MTN MoMo, Airtel Money, and card checkout, all in one flow.',
+      ),
+      (
+        icon: Icons.support_agent_outlined,
+        title: '24/7 support',
+        body: 'Schedule issues or refund requests answered within minutes.',
+      ),
+    ];
+
+    if (isDesktop) {
+      return Row(
+        children: [
+          for (var i = 0; i < features.length; i++) ...[
+            Expanded(
+              child: _FeatureTile(
+                icon: features[i].icon,
+                title: features[i].title,
+                body: features[i].body,
+              ),
+            ),
+            if (i < features.length - 1) const SizedBox(width: 16),
+          ],
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        for (final f in features)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _FeatureTile(icon: f.icon, title: f.title, body: f.body),
+          ),
+      ],
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  const _FeatureTile({
+    required this.icon,
+    required this.title,
+    required this.body,
   });
+
+  final IconData icon;
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [AppColors.cardShadow],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: AppColors.brandTint,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: AppColors.brandPrimary),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            body,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Hero bus card (kept from previous design, color-tokenized)
+// ===========================================================================
+
+class _HeroBusCard extends StatelessWidget {
+  const _HeroBusCard({required this.onBookTrip});
 
   final VoidCallback onBookTrip;
 
@@ -134,7 +285,7 @@ class _HeroBusCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(36),
             child: AspectRatio(
-              aspectRatio: 1.75,
+              aspectRatio: 1.55,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -164,13 +315,13 @@ class _HeroBusCard extends StatelessWidget {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xE617357E),
+                        color: AppColors.brandDeep.withOpacity(0.9),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Text(
                         'SecureMove',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: AppColors.textOnBrand,
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.2,
@@ -190,13 +341,13 @@ class _HeroBusCard extends StatelessWidget {
               icon: const Icon(Icons.arrow_forward_rounded),
               label: const Text('Book a trip'),
               style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 58),
+                minimumSize: const Size(0, 56),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 22,
                   vertical: 16,
                 ),
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF17357E),
+                backgroundColor: AppColors.surface,
+                foregroundColor: AppColors.brandDeep,
                 textStyle: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -211,10 +362,7 @@ class _HeroBusCard extends StatelessWidget {
 }
 
 class _InfoPill extends StatelessWidget {
-  const _InfoPill({
-    required this.icon,
-    required this.label,
-  });
+  const _InfoPill({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -224,7 +372,7 @@ class _InfoPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(999),
         boxShadow: const [
           BoxShadow(
@@ -237,13 +385,13 @@ class _InfoPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF244AA8)),
+          Icon(icon, size: 18, color: AppColors.brandPrimary),
           const SizedBox(width: 8),
           Text(
             label,
             style: const TextStyle(
               fontWeight: FontWeight.w700,
-              color: Color(0xFF244AA8),
+              color: AppColors.brandPrimary,
             ),
           ),
         ],

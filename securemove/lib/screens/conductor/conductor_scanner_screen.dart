@@ -198,7 +198,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen> {
       decoration: _box(),
       child: Row(
         children: [
-          const Icon(Icons.badge_outlined, size: 38, color: Color(0xFF3667F5)),
+          const Icon(Icons.badge_outlined, size: 38, color: AppColors.brandVivid),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -210,7 +210,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen> {
                   _trip == null
                       ? 'No assigned trip for today'
                       : '${_trip?['origin'] ?? 'Origin'} -> ${_trip?['destination'] ?? 'Destination'} - ${_trip?['registration_number'] ?? 'Bus'} - $departure',
-                  style: const TextStyle(color: Color(0xFF5E6C87)),
+                  style: const TextStyle(color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -225,7 +225,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen> {
         decoration: _box(),
         child: Row(
           children: [
-            const Icon(Icons.groups_rounded, color: Color(0xFF0F7A4C)),
+            const Icon(Icons.groups_rounded, color: AppColors.successText),
             const SizedBox(width: 10),
             Text('Boarded: $_boarded / $_total passengers', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
           ],
@@ -239,11 +239,11 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen> {
         borderRadius: BorderRadius.circular(8),
         child: _trip == null
             ? Container(
-                color: const Color(0xFFE9EEF7),
+                color: AppColors.border,
                 child: const Center(child: Text('Scanner locked until a trip is assigned.')),
               )
             : Container(
-                color: const Color(0xFF111827),
+                color: AppColors.textPrimary,
                 padding: const EdgeInsets.all(18),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -261,7 +261,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen> {
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         labelText: 'QR ticket code',
-                        labelStyle: const TextStyle(color: Color(0xFFD9E2F2)),
+                        labelStyle: const TextStyle(color: AppColors.textOnBrandSoft),
                         filled: true,
                         fillColor: Colors.white.withOpacity(0.10),
                         border: OutlineInputBorder(

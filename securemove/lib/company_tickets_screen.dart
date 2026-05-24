@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'theme/app_colors.dart';
 import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
@@ -232,8 +233,8 @@ class _TicketCard extends StatelessWidget {
                 ? Icons.check_circle_rounded
                 : Icons.confirmation_number_outlined,
             color: ticket.status == 'used'
-                ? const Color(0xFF0F7A4C)
-                : const Color(0xFF284BA8),
+                ? AppColors.successText
+                : AppColors.brandPrimary,
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -248,19 +249,19 @@ class _TicketCard extends StatelessWidget {
                 Text(
                   ticket.routeLabel,
                   style: const TextStyle(
-                    color: Color(0xFF60708E),
+                    color: AppColors.textSecondary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '$departure • ${ticket.driverName ?? 'Driver pending'}',
-                  style: const TextStyle(color: Color(0xFF60708E)),
+                  style: const TextStyle(color: AppColors.textSecondary),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '${ticket.bookingReference ?? ticket.ticketNumber} • ${ticket.seatNumber}',
-                  style: const TextStyle(color: Color(0xFF60708E)),
+                  style: const TextStyle(color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -268,7 +269,7 @@ class _TicketCard extends StatelessWidget {
           Text(
             ticket.status.toUpperCase(),
             style: const TextStyle(
-              color: Color(0xFF284BA8),
+              color: AppColors.brandPrimary,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -292,7 +293,7 @@ class _MessagePanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: isError ? const Color(0xFFFFF1F1) : Colors.white,
+        color: isError ? AppColors.dangerLight : Colors.white,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Text(message, style: const TextStyle(height: 1.35)),

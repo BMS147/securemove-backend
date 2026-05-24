@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_colors.dart';
 
@@ -9,7 +8,7 @@ class StatsCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
-    this.color = const Color(0xFF3667F5),
+    this.color = AppColors.brandPrimary,
   });
 
   final String label;
@@ -40,7 +39,7 @@ class StatsCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.accentLight,
+              color: AppColors.brandTint,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -48,7 +47,7 @@ class StatsCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             value,
-            style: GoogleFonts.inter(
+            style: const TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w800,
               color: AppColors.textPrimary,

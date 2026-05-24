@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 
 const pool = require('../db');
@@ -16,56 +17,15 @@ const {
   getMockPaymentStatus,
   initiateMockPayment,
 } = require('../services/mockMobileMoneyService');
+const {
+  getLencoConfig,
+  initiateCollection: lencoInitiateCollection,
+  getCollectionStatus: lencoGetCollectionStatus,
+} = require('../services/lencoService');
+const { fulfillPaidBooking } = require('../services/bookingFulfillment');
 
 const router = express.Router();
 
-async function ensureTicketsForBooking(bookingId) {
-  const existing = await pool.query(
-    'SELECT ticket_id FROM tickets WHERE booking_id = $1 LIMIT 1',
-    [bookingId]
-  );
-
-  if (existing.rowCount > 0) {
-    return;
-  }
-
-  const bookingResult = await pool.query(
-    `SELECT b.booking_id, b.booking_reference, u.name AS passenger_name
-     FROM bookings b
-     INNER JOIN users u ON u.user_id = b.user_id
-     WHERE b.booking_id = $1`,
-    [bookingId]
-  );
-
-  if (bookingResult.rowCount === 0) {
-    return;
-  }
-
-  const booking = bookingResult.rows[0];
-  await pool.query(
-    `INSERT INTO tickets (
-      booking_id,
-      passenger_name,
-      seat_number,
-      ticket_number,
-      qr_code_hash,
-      status
-    )
-    VALUES ($1, $2, $3, $4, $5, 'active')
-    ON CONFLICT (booking_id, seat_number) DO NOTHING`,
-    [
-      booking.booking_id,
-      booking.passenger_name || 'SecureMove passenger',
-      'AUTO-1',
-      `SMT-${booking.booking_reference}`,
-      booking.booking_reference,
-    ]
-  );
-}
-
-function getMobileMoneyMode() {
-  return (process.env.MOBILE_MONEY_MODE || 'mock').trim().toLowerCase();
-}
 
 router.post('/create-intent', async (req, res) => {
   const { amount, currency = 'usd', description } = req.body ?? {};
@@ -131,8 +91,10 @@ router.post('/create-intent', async (req, res) => {
 router.get('/mobile-money/config', authenticateToken, async (req, res) => {
   const mtn = getMtnConfig();
   const airtel = getAirtelConfig();
+  const lenco = getLencoConfig();
   const mode = getMobileMoneyMode();
-  const enabled = Boolean(mtn.enabled || airtel.enabled || mode === 'mock');
+  const enabled = Boolean(mtn.enabled || airtel.enabled || lenco.enabled || mode === 'mock');
+
   if (!enabled) {
     return res.json({
       enabled: false,
@@ -145,15 +107,24 @@ router.get('/mobile-money/config', authenticateToken, async (req, res) => {
     });
   }
 
+  const isMock = mode === 'mock';
+  const isLenco = mode === 'lenco';
+
   return res.json({
-    provider: mtn.enabled ? 'MTN Mobile Money' : 'Airtel Money',
+    provider: isLenco ? 'Lenco' : mtn.enabled ? 'MTN Mobile Money' : 'Airtel Money',
     merchantCode: process.env.MOBILE_MONEY_MERCHANT_CODE || 'not-configured',
     currency: 'ZMW',
     enabled: true,
     mode,
     providers: {
-      mtn: { enabled: Boolean(mtn.enabled), simulated: mode === 'mock' && !mtn.enabled },
-      airtel: { enabled: Boolean(airtel.enabled), simulated: mode === 'mock' && !airtel.enabled },
+      mtn: {
+        enabled: isLenco ? true : Boolean(mtn.enabled),
+        simulated: isMock && !mtn.enabled,
+      },
+      airtel: {
+        enabled: isLenco ? true : Boolean(airtel.enabled),
+        simulated: isMock && !airtel.enabled,
+      },
     },
   });
 });
@@ -195,23 +166,53 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
       return res.status(409).json({ error: 'This booking is already paid' });
     }
 
-    let paymentResult;
-    if (mobileMoneyMode === 'live' && normalizedProvider === 'mtn') {
-      paymentResult = await requestToPay({
+    let transactionReference;
+    let providerStatusLabel;
+
+    if (mobileMoneyMode === 'lenco') {
+      // Lenco handles both MTN and Airtel — operator comes from the provider field
+      const lencoRef = buildLencoReference(booking.booking_id);
+      const result = await lencoInitiateCollection({
+        amount: parsedAmount,
+        reference: lencoRef,
+        phone: String(phoneNumber).trim(),
+        operator: normalizedProvider, // 'mtn' or 'airtel'
+      });
+
+      // MTN (and occasionally Airtel) can reject immediately before a USSD
+      // prompt is ever sent — e.g. insufficient funds or withdrawal limit.
+      // Return a 402 straight away so the app shows the real reason instead
+      // of storing a doomed pending payment and waiting for polling to fail.
+      if (result.status === 'failed') {
+        const reason = result.reason || 'Payment was declined by the mobile money provider.';
+        return res.status(402).json({ error: reason });
+      }
+
+      // Store OUR reference so we can poll /collections/status/:reference and match webhooks by data.reference
+      transactionReference = result.ourReference;
+      providerStatusLabel = result.status;
+    } else if (mobileMoneyMode === 'live' && normalizedProvider === 'mtn') {
+      const result = await requestToPay({
         amount: parsedAmount,
         phoneNumber: String(phoneNumber).trim(),
         externalId: booking.booking_id,
         payerMessage: 'SecureMove bus ticket payment',
         payeeNote: `Booking ${booking.booking_id}`,
       });
+      transactionReference = result.referenceId;
+      providerStatusLabel = result.status;
     } else if (mobileMoneyMode === 'live' && normalizedProvider === 'airtel') {
-      paymentResult = await requestAirtelPayment({
+      const result = await requestAirtelPayment({
         amount: parsedAmount,
         phoneNumber: String(phoneNumber).trim(),
         externalId: booking.booking_id,
       });
+      transactionReference = result.referenceId;
+      providerStatusLabel = result.status;
     } else {
-      paymentResult = initiateMockPayment({ provider: normalizedProvider });
+      const result = initiateMockPayment({ provider: normalizedProvider });
+      transactionReference = result.referenceId;
+      providerStatusLabel = result.status;
     }
 
     const insertResult = await pool.query(
@@ -232,17 +233,20 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
         parsedAmount,
         normalizedProvider,
         String(phoneNumber).trim(),
-        paymentResult.referenceId,
+        transactionReference,
       ]
     );
 
+    const modeMessages = {
+      lenco: 'Payment request submitted to Lenco. The customer will receive a prompt on their phone to approve.',
+      live:  'Payment request submitted. Awaiting customer approval.',
+      mock:  'Mock payment created. It will settle automatically after a short delay.',
+    };
+
     return res.status(202).json({
       payment: insertResult.rows[0],
-      providerStatus: paymentResult.status,
-      message:
-        mobileMoneyMode === 'live'
-          ? 'Payment request submitted. Awaiting customer approval.'
-          : 'Mock mobile money request created. It will settle automatically after a short delay.',
+      providerStatus: providerStatusLabel,
+      message: modeMessages[mobileMoneyMode] || modeMessages.mock,
     });
   } catch (err) {
     console.error('Initiate mobile money payment error:', err.message);
@@ -273,33 +277,38 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
 
     const payment = paymentResult.rows[0];
 
+    // For Lenco, the webhook is the primary update mechanism.
+    // Polling still calls the Lenco API as a fallback for missed webhooks.
     let providerStatus;
-    if (mobileMoneyMode === 'live' && payment.provider === 'mtn') {
+    if (mobileMoneyMode === 'lenco') {
+      if (['successful', 'failed'].includes(payment.status)) {
+        // Already in a terminal state — return DB value without calling Lenco
+        providerStatus = { status: payment.status, reason: null };
+      } else {
+        providerStatus = await lencoGetCollectionStatus(payment.transaction_reference);
+      }
+    } else if (mobileMoneyMode === 'live' && payment.provider === 'mtn') {
       providerStatus = await getRequestToPayStatus(payment.transaction_reference);
     } else if (mobileMoneyMode === 'live' && payment.provider === 'airtel') {
       providerStatus = await getAirtelPaymentStatus(payment.transaction_reference);
     } else {
       providerStatus = getMockPaymentStatus(payment);
     }
+
     const nextStatus = providerStatus.status;
 
-    await pool.query(
-      `UPDATE payments
-       SET status = $1,
-           updated_at = NOW()
-       WHERE payment_id = $2`,
-      [nextStatus, payment.payment_id]
-    );
-
-    if (nextStatus === 'successful') {
+    // Only write to DB if status actually changed (avoid unnecessary updates)
+    if (nextStatus !== payment.status) {
       await pool.query(
-        `UPDATE bookings
-         SET status = 'paid',
-             updated_at = NOW()
-         WHERE booking_id = $1`,
-        [payment.booking_id]
+        `UPDATE payments
+         SET status = $1, updated_at = NOW()
+         WHERE payment_id = $2`,
+        [nextStatus, payment.payment_id]
       );
-      await ensureTicketsForBooking(payment.booking_id);
+
+      if (nextStatus === 'successful') {
+        await fulfillPaidBooking(payment.booking_id, providerStatus.financialTransactionId || null);
+      }
     }
 
     const refreshed = await pool.query(
@@ -318,5 +327,18 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
     return res.status(500).json({ error: err.message || 'Unable to check payment status' });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildLencoReference(bookingId) {
+  // Lenco accepts alphanumeric, hyphen, dot, underscore — max length not documented
+  return `SM-BK${bookingId}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
+
+function getMobileMoneyMode() {
+  return (process.env.MOBILE_MONEY_MODE || 'mock').trim().toLowerCase();
+}
 
 module.exports = router;

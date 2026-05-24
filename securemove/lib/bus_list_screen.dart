@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'bus.dart';
 import 'payment_screen.dart';
 import 'route_service.dart';
+import 'theme/app_colors.dart';
 
 enum SortType { price, time }
 
@@ -17,331 +18,112 @@ class BusListScreen extends StatefulWidget {
 }
 
 class _BusListScreenState extends State<BusListScreen> {
-  SortType _currentSort = SortType.price;
-  late Future<List<Bus>> _futureRoutes;
+  SortType _sort = SortType.price;
+  late Future<List<Bus>> _future;
 
   @override
   void initState() {
     super.initState();
-    _futureRoutes = _loadRoutes();
+    _future = _fetch();
   }
 
-  Future<List<Bus>> _loadRoutes() {
-    return RouteService.instance.searchRoutes(
-      from: widget.from,
-      to: widget.to,
-    );
-  }
+  Future<List<Bus>> _fetch() =>
+      RouteService.instance.searchRoutes(from: widget.from, to: widget.to);
 
-  Future<void> _refreshRoutes() async {
-    final next = _loadRoutes();
-    setState(() => _futureRoutes = next);
-    await next;
-  }
+  void _reload() => setState(() => _future = _fetch());
 
-  // Parse price string like "K250" to int 250
-  int _parsePrice(String priceStr) {
-    return int.parse(priceStr.replaceAll(RegExp(r'[^0-9]'), ''));
-  }
-
-  // Parse time string like "10:00 AM" to minutes since midnight
-  int _parseTimeToMinutes(String timeStr) {
-    final parts = timeStr.split(' ');
-    final timePart = parts[0]; // "10:00"
-    final ampm = parts[1]; // "AM" or "PM"
-    var timeComponents = timePart.split(':');
-    int hour = int.parse(timeComponents[0]);
-    int minute = int.parse(timeComponents[1]);
-    if (ampm == 'PM' && hour != 12) hour += 12;
-    if (ampm == 'AM' && hour == 12) hour = 0;
-    return hour * 60 + minute;
-  }
-
-  // Get sorted list based on current sort type
-  List<Bus> _sortedItems(List<Bus> routes) {
-    final sorted = List<Bus>.from(routes);
-    if (_currentSort == SortType.price) {
-      sorted.sort((a, b) => _parsePrice(a.price).compareTo(_parsePrice(b.price)));
-    } else if (_currentSort == SortType.time) {
-      sorted.sort(
-        (a, b) => _parseTimeToMinutes(a.time).compareTo(_parseTimeToMinutes(b.time)),
-      );
+  List<Bus> _sorted(List<Bus> raw) {
+    final list = List<Bus>.from(raw);
+    if (_sort == SortType.price) {
+      list.sort((a, b) => _cents(a.price).compareTo(_cents(b.price)));
+    } else {
+      list.sort((a, b) => a.time.compareTo(b.time));
     }
-    return sorted;
+    return list;
   }
+
+  int _cents(String price) =>
+      int.tryParse(price.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
   @override
   Widget build(BuildContext context) {
-    const accents = [
-      Color(0xFFEFF4FF),
-      Color(0xFFFFF5E8),
-      Color(0xFFEAFBF4),
-      Color(0xFFF4E8FF),
-    ];
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
               'Available buses',
-              style: TextStyle(fontWeight: FontWeight.w800),
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
             ),
             Text(
-              '${widget.from} to ${widget.to}',
+              '${widget.from} → ${widget.to}',
               style: const TextStyle(
                 fontSize: 13,
-                color: Color(0xFF6C7894),
+                color: AppColors.textSecondary,
               ),
             ),
           ],
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: _SortDropdown(
-              currentSort: _currentSort,
-              onSelected: (value) {
-                if (value == null) {
-                  return;
-                }
-                setState(() {
-                  _currentSort = value;
-                });
-              },
-            ),
-          ),
-        ],
       ),
       body: FutureBuilder<List<Bus>>(
-        future: _futureRoutes,
+        future: _future,
         builder: (context, snapshot) {
+          // ── Loading ──────────────────────────────────────────────────────
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
+          // ── Error ────────────────────────────────────────────────────────
           if (snapshot.hasError) {
-            return _BusStateCard(
-              icon: Icons.cloud_off_rounded,
-              title: 'Could not load routes',
+            return _ErrorState(
               message: snapshot.error.toString(),
-              actionLabel: 'Try again',
-              onPressed: _refreshRoutes,
+              onRetry: _reload,
             );
           }
 
-          final routes = snapshot.data ?? const <Bus>[];
-          if (routes.isEmpty) {
-            return _BusStateCard(
-              icon: Icons.route_outlined,
-              title: 'No scheduled buses found',
-              message:
-                  'SecureMove only allows booking real routes now. We could not find any active schedules from ${widget.from} to ${widget.to}.',
-              actionLabel: 'Refresh',
-              onPressed: _refreshRoutes,
+          final buses = _sorted(snapshot.data ?? const []);
+
+          // ── Empty ────────────────────────────────────────────────────────
+          if (buses.isEmpty) {
+            return _EmptyState(
+              from: widget.from,
+              to: widget.to,
+              onRefresh: _reload,
             );
           }
 
-          final sortedItems = _sortedItems(routes);
-
+          // ── List ─────────────────────────────────────────────────────────
+          // ListView.builder is placed directly in Scaffold.body so it always
+          // receives tight constraints from the viewport — no Expanded/Row
+          // nesting that could leave slivers' parent data dirty.
           return RefreshIndicator(
-            onRefresh: _refreshRoutes,
+            onRefresh: () async => _reload(),
             child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              itemCount: sortedItems.length,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+              itemCount: buses.length + 1,
               itemBuilder: (context, index) {
-                final bus = sortedItems[index];
-                final accentColor = accents[index % accents.length];
-
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(28),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x100F2554),
-                        blurRadius: 28,
-                        offset: Offset(0, 16),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 64,
-                            height: 64,
-                            decoration: BoxDecoration(
-                              color: accentColor,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Icon(
-                              Icons.directions_bus_filled_rounded,
-                              size: 34,
-                              color: Color(0xFF2048AC),
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  bus.company,
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Departs at ${bus.time}',
-                                  style: const TextStyle(
-                                    color: Color(0xFF6C7894),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF4FF),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    bus.formattedDuration,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF2B53C5),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                if (bus.seatAvailabilityLabel != null)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEAFBF4),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      bus.seatAvailabilityLabel!,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF1F8C57),
-                                      ),
-                                    ),
-                                  ),
-                                if (bus.driverSummary != null) ...[
-                                  const SizedBox(height: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF4F7FD),
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      'Driver: ${bus.driverSummary!}',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF5E6C87),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          Text(
-                            bus.price,
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF17357E),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: bus.features
-                              .map(
-                                (feature) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF5F7FB),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    feature,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF60708E),
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.timeline_rounded,
-                            color: Color(0xFF3667F5),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              bus.registrationNumber == null
-                                  ? 'Scheduled trip from ${bus.origin} to ${bus.destination} with digital check-in.'
-                                  : 'Scheduled trip from ${bus.origin} to ${bus.destination} on bus ${bus.registrationNumber}.',
-                              style: const TextStyle(
-                                color: Color(0xFF6C7894),
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => PaymentScreen(bus: bus),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.arrow_forward_rounded),
-                          label: const Text('Continue to Payment'),
-                        ),
-                      ),
-                    ],
-                  ),
+                if (index == 0) {
+                  return _SortBar(
+                    current: _sort,
+                    onChanged: (s) => setState(() => _sort = s),
+                  );
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _BusCard(bus: buses[index - 1]),
                 );
               },
             ),
@@ -352,130 +134,458 @@ class _BusListScreenState extends State<BusListScreen> {
   }
 }
 
-class _SortDropdown extends StatelessWidget {
-  const _SortDropdown({
-    required this.currentSort,
-    required this.onSelected,
-  });
+// ============================================================
+// Sort bar
+// ============================================================
 
-  final SortType currentSort;
-  final ValueChanged<SortType?> onSelected;
+class _SortBar extends StatelessWidget {
+  const _SortBar({required this.current, required this.onChanged});
+
+  final SortType current;
+  final ValueChanged<SortType> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonHideUnderline(
-      child: DecoratedBox(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          const Text(
+            'Sort by:',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(width: 10),
+          _Chip(
+            label: 'Cheapest',
+            icon: Icons.attach_money_rounded,
+            selected: current == SortType.price,
+            onTap: () => onChanged(SortType.price),
+          ),
+          const SizedBox(width: 8),
+          _Chip(
+            label: 'Earliest',
+            icon: Icons.schedule_rounded,
+            selected: current == SortType.time,
+            onTap: () => onChanged(SortType.time),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x100F2554),
-              blurRadius: 18,
-              offset: Offset(0, 10),
+          color: selected ? AppColors.brandPrimary : AppColors.surface,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? AppColors.brandPrimary : AppColors.border,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: selected ? AppColors.textOnBrand : AppColors.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: selected ? AppColors.textOnBrand : AppColors.textPrimary,
+              ),
             ),
           ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: DropdownButton<SortType>(
-            value: currentSort,
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            borderRadius: BorderRadius.circular(16),
-            style: const TextStyle(
-              color: Color(0xFF15306B),
-              fontWeight: FontWeight.w700,
-            ),
-            onChanged: onSelected,
-            items: const [
-              DropdownMenuItem(
-                value: SortType.price,
-                child: Text('Cheapest'),
-              ),
-              DropdownMenuItem(
-                value: SortType.time,
-                child: Text('Earliest'),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 }
 
-class _BusStateCard extends StatelessWidget {
-  const _BusStateCard({
+// ============================================================
+// Bus card
+// ============================================================
+
+class _BusCard extends StatelessWidget {
+  const _BusCard({required this.bus});
+
+  final Bus bus;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [AppColors.cardShadow],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header row: icon + company + price ──────────────────────────
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AppColors.brandTint,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.directions_bus_filled_rounded,
+                  size: 26,
+                  color: AppColors.brandPrimary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      bus.company,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${bus.origin} → ${bus.destination}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                bus.price,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.brandDeep,
+                  letterSpacing: -0.5,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+          const Divider(color: AppColors.border, height: 1),
+          const SizedBox(height: 14),
+
+          // ── Info row: departure · duration · seats ───────────────────────
+          Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _InfoItem(
+                icon: Icons.schedule_rounded,
+                label: 'Departs',
+                value: bus.time,
+              ),
+              _InfoItem(
+                icon: Icons.timelapse_rounded,
+                label: 'Duration',
+                value: bus.formattedDuration,
+              ),
+              _InfoItem(
+                icon: Icons.event_seat_rounded,
+                label: 'Seats left',
+                value: '${bus.effectiveSeatsLeft}',
+              ),
+              if (bus.registrationNumber != null)
+                _InfoItem(
+                  icon: Icons.confirmation_number_outlined,
+                  label: 'Reg',
+                  value: bus.registrationNumber!,
+                ),
+            ],
+          ),
+
+          if (bus.features.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: bus.features
+                  .map(
+                    (f) => Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.neutralTint,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        f,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // ── Book button ──────────────────────────────────────────────────
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => PaymentScreen(bus: bus)),
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+              label: const Text('Continue to payment'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brandVivid,
+                foregroundColor: AppColors.textOnBrand,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoItem extends StatelessWidget {
+  const _InfoItem({
     required this.icon,
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onPressed,
+    required this.label,
+    required this.value,
   });
 
   final IconData icon;
-  final String title;
-  final String message;
-  final String actionLabel;
-  final Future<void> Function() onPressed;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: AppColors.brandPrimary),
+        const SizedBox(width: 5),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// Empty + error states
+// ============================================================
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({
+    required this.from,
+    required this.to,
+    required this.onRefresh,
+  });
+
+  final String from;
+  final String to;
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x100F2554),
-                blurRadius: 28,
-                offset: Offset(0, 16),
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.neutralTint,
+                borderRadius: BorderRadius.circular(24),
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF4FF),
-                  borderRadius: BorderRadius.circular(22),
+              child: const Icon(
+                Icons.route_outlined,
+                size: 40,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'No buses found',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'No active schedules from $from to $to. Try a different route or check back later.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: onRefresh,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Refresh'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.brandPrimary,
+                side: const BorderSide(color: AppColors.border),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
                 ),
-                child: Icon(icon, color: const Color(0xFF2A54C6), size: 34),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF5E6C87),
-                  height: 1.4,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.dangerLight,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: const Icon(
+                Icons.cloud_off_rounded,
+                size: 40,
+                color: AppColors.dangerText,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Could not load routes',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.brandVivid,
+                foregroundColor: AppColors.textOnBrand,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () {
-                  onPressed();
-                },
-                child: Text(actionLabel),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

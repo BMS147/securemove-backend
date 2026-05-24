@@ -13,10 +13,16 @@ const ticketRoutes = require('./routes/tickets');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const roleCompanyRoutes = require('./routes/companyRoutes');
 const conductorRoutes = require('./routes/conductorRoutes');
+const lencoWebhookRoute = require('./routes/lencoWebhook');
 
 const app = express();
 
 app.use(cors());
+
+// Webhook must receive raw body for HMAC-SHA512 signature verification.
+// Mount BEFORE express.json() so the body is not pre-parsed.
+app.use('/webhooks/lenco', express.raw({ type: 'application/json' }), lencoWebhookRoute);
+
 app.use(express.json());
 app.use((req, res, next) => {
   res.type('application/json');

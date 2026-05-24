@@ -4,11 +4,13 @@ import 'package:intl/intl.dart';
 import '../../auth_service.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/breakpoints.dart';
+import '../../widgets/design_system/app_card.dart';
+import '../../widgets/design_system/kpi_card.dart';
+import '../../widgets/design_system/status_pill.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/role_guard.dart';
 import '../../widgets/skeleton_card.dart';
-import '../../widgets/stats_card.dart';
-import '../../widgets/workspace_header.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -41,7 +43,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _error = null;
     });
     try {
-      final usersPath = _roleFilter == 'all' ? '/admin/users' : '/admin/users?role=$_roleFilter';
+      final usersPath = _roleFilter == 'all'
+          ? '/admin/users'
+          : '/admin/users?role=$_roleFilter';
       final results = await Future.wait([
         _api.get('/admin/dashboard'),
         _api.get('/admin/companies'),
@@ -90,56 +94,74 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Breakpoints.isDesktop(context);
+
     return RoleGuard(
       allowedRoles: const {'super_admin'},
       child: Scaffold(
+        backgroundColor: AppColors.background,
         body: _loading
             ? const _AdminSkeleton()
-            : Row(
-                children: [
-                  _AdminSideNav(
-                    selectedIndex: _index,
-                    onSelected: (value) => setState(() => _index = value),
-                    onLogout: _logout,
-                  ),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        children: [
-                          WorkspaceHeader(
-                            title: 'Super Admin',
-                            subtitle: 'System control',
-                            actionIcon: Icons.logout_rounded,
-                            onAction: _logout,
+            : SafeArea(
+                child: Row(
+                  children: [
+                    _AdminSideNav(
+                      selectedIndex: _index,
+                      onSelected: (v) => setState(() => _index = v),
+                      onLogout: _logout,
+                      expanded: isDesktop,
+                    ),
+                    const VerticalDivider(
+                      width: 1,
+                      color: AppColors.border,
+                    ),
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView(
+                          padding: EdgeInsets.fromLTRB(
+                            isDesktop ? 32 : 16,
+                            24,
+                            isDesktop ? 32 : 16,
+                            24,
                           ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                            child: Column(
-                              children: [
-                                if (_error != null)
-                                  ErrorBanner(
-                                    title: 'Connection failed',
-                                    message:
-                                        'SecureMove API is waking up. Retry in a moment.',
-                                    onRetry: _load,
-                                  ),
-                                _currentView(),
-                              ],
+                          children: [
+                            _TopBar(
+                              section: _sectionName(),
+                              onLogout: _logout,
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 22),
+                            if (_error != null) ...[
+                              ErrorBanner(
+                                title: 'Connection failed',
+                                message:
+                                    'SecureMove API is waking up. Retry in a moment.',
+                                onRetry: _load,
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            _currentView(isDesktop),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
       ),
     );
   }
 
-  Widget _currentView() {
+  String _sectionName() => switch (_index) {
+        1 => 'Companies',
+        2 => 'Users',
+        3 => 'Transactions',
+        4 => 'Security logs',
+        5 => 'Reports',
+        _ => 'Overview',
+      };
+
+  Widget _currentView(bool isDesktop) {
     switch (_index) {
       case 1:
         return _companiesView();
@@ -152,141 +174,319 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       case 5:
         return _reportsView();
       default:
-        return _dashboard();
+        return _dashboard(isDesktop);
     }
   }
 
-  Widget _dashboard() {
+  Widget _dashboard(bool isDesktop) {
+    final kpis = [
+      KpiCard(
+        label: 'Total companies',
+        value: '${_stats['totalCompanies'] ?? 0}',
+        icon: Icons.business_outlined,
+      ),
+      KpiCard(
+        label: 'Total users',
+        value: '${_stats['totalUsers'] ?? 0}',
+        icon: Icons.people_alt_outlined,
+        accentBg: AppColors.successTint,
+        accentFg: AppColors.successText,
+      ),
+      KpiCard(
+        label: 'Total bookings',
+        value: '${_stats['totalBookings'] ?? 0}',
+        icon: Icons.confirmation_number_outlined,
+        accentBg: AppColors.warningTint,
+        accentFg: AppColors.warningText,
+      ),
+      KpiCard(
+        label: 'System revenue',
+        value: 'ZMW ${_stats['revenue'] ?? 0}',
+        icon: Icons.payments_outlined,
+        accentBg: AppColors.dangerLight,
+        accentFg: AppColors.dangerText,
+      ),
+    ];
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _statsGrid([
-          StatsCard(label: 'Total Companies', value: '${_stats['totalCompanies'] ?? 0}', icon: Icons.business),
-          StatsCard(label: 'Total Users', value: '${_stats['totalUsers'] ?? 0}', icon: Icons.people),
-          StatsCard(label: 'Total Bookings', value: '${_stats['totalBookings'] ?? 0}', icon: Icons.confirmation_number),
-          StatsCard(label: 'System Revenue', value: 'ZMW ${_stats['revenue'] ?? 0}', icon: Icons.payments),
-        ]),
-        const SizedBox(height: 16),
+        LayoutBuilder(
+          builder: (context, c) {
+            final cols = c.maxWidth > 1000
+                ? 4
+                : c.maxWidth > 700
+                    ? 2
+                    : 1;
+            final spacing = 16.0;
+            final width = (c.maxWidth - spacing * (cols - 1)) / cols;
+            return Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: kpis
+                  .map((k) => SizedBox(width: width, child: k))
+                  .toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 22),
         _companiesView(compact: true),
       ],
     );
   }
 
+  // ── Companies ───────────────────────────────────────────────────────────
   Widget _companiesView({bool compact = false}) {
     final items = compact ? _companies.take(5).toList() : _companies;
     return _Panel(
-      title: 'Companies',
-      child: Column(
-        children: items.map((company) {
-          final approved = company['approval_status'] == 'approved';
-          return ListTile(
-            leading: Icon(approved ? Icons.verified_rounded : Icons.hourglass_top_rounded),
-            title: Text('${company['name'] ?? 'Company'}'),
-            subtitle: Text('Status: ${company['approval_status'] ?? 'pending'}'),
-            trailing: approved
-                ? const Text('Approved', style: TextStyle(fontWeight: FontWeight.w800))
-                : FilledButton(
-                    onPressed: () => _approveCompany(company['company_id']),
-                    child: const Text('Approve'),
-                  ),
-          );
-        }).toList(),
-      ),
+      title: compact ? 'Recently registered companies' : 'Companies',
+      child: items.isEmpty
+          ? _emptyText('No companies on file yet.')
+          : Column(
+              children: items.map((company) {
+                final approved = company['approval_status'] == 'approved';
+                return _PanelRow(
+                  icon: approved
+                      ? Icons.verified_rounded
+                      : Icons.hourglass_top_rounded,
+                  iconColor:
+                      approved ? AppColors.successText : AppColors.warningText,
+                  iconBg: approved
+                      ? AppColors.successTint
+                      : AppColors.warningTint,
+                  title: '${company['name'] ?? 'Company'}',
+                  subtitle: 'Status: ${company['approval_status'] ?? 'pending'}',
+                  trailing: approved
+                      ? const StatusPill(
+                          label: 'Approved',
+                          kind: StatusKind.success,
+                        )
+                      : FilledButton(
+                          onPressed: () =>
+                              _approveCompany(company['company_id']),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.brandVivid,
+                            foregroundColor: AppColors.textOnBrand,
+                          ),
+                          child: const Text('Approve'),
+                        ),
+                );
+              }).toList(),
+            ),
     );
   }
 
+  // ── Users ───────────────────────────────────────────────────────────────
   Widget _usersView() {
     return _Panel(
       title: 'Users',
-      trailing: DropdownButton<String>(
+      trailing: _RoleFilterMenu(
         value: _roleFilter,
-        items: const [
-          DropdownMenuItem(value: 'all', child: Text('All')),
-          DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
-          DropdownMenuItem(value: 'company_admin', child: Text('Company')),
-          DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
-          DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
-        ],
-        onChanged: (value) {
-          if (value == null) return;
-          setState(() => _roleFilter = value);
+        onChanged: (v) {
+          if (v == null) return;
+          setState(() => _roleFilter = v);
           _load();
         },
       ),
-      child: Column(
-        children: _users.map((user) {
-          return ListTile(
-            title: Text('${user['name'] ?? user['email']}'),
-            subtitle: Text('${user['email'] ?? ''}'),
-            trailing: DropdownButton<String>(
-              value: (user['role'] as String?) ?? 'passenger',
-              items: const [
-                DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
-                DropdownMenuItem(value: 'company_admin', child: Text('Company')),
-                DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
-                DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
-              ],
-              onChanged: (role) => role == null ? null : _updateRole(user['user_id'], role),
+      child: _users.isEmpty
+          ? _emptyText('No users match this filter.')
+          : Column(
+              children: _users.map((user) {
+                return _PanelRow(
+                  icon: Icons.person_outline_rounded,
+                  iconColor: AppColors.brandPrimary,
+                  iconBg: AppColors.brandTint,
+                  title: '${user['name'] ?? user['email']}',
+                  subtitle: '${user['email'] ?? ''}',
+                  trailing: DropdownButton<String>(
+                    value: (user['role'] as String?) ?? 'passenger',
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
+                      DropdownMenuItem(value: 'company_admin', child: Text('Company')),
+                      DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
+                      DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
+                    ],
+                    onChanged: (role) => role == null
+                        ? null
+                        : _updateRole(user['user_id'], role),
+                  ),
+                );
+              }).toList(),
             ),
-          );
-        }).toList(),
+    );
+  }
+
+  // ── Transactions ────────────────────────────────────────────────────────
+  Widget _transactionsView() {
+    return _Panel(
+      title: 'Transactions',
+      child: _transactions.isEmpty
+          ? _emptyText('No transactions yet.')
+          : Column(
+              children: _transactions.map((item) {
+                final status = (item['status'] as String?) ?? 'pending';
+                return _PanelRow(
+                  icon: Icons.payments_outlined,
+                  iconColor: AppColors.brandPrimary,
+                  iconBg: AppColors.brandTint,
+                  title: 'ZMW ${item['amount'] ?? 0}',
+                  subtitle:
+                      '${item['company_name'] ?? 'Unknown company'} • ${_date(item['created_at'])}',
+                  trailing: StatusPill.fromLabel(status),
+                );
+              }).toList(),
+            ),
+    );
+  }
+
+  // ── Logs ────────────────────────────────────────────────────────────────
+  Widget _logsView() {
+    return _Panel(
+      title: 'Security logs',
+      child: _logs.isEmpty
+          ? _emptyText('No events yet.')
+          : Column(
+              children: _logs.map((item) {
+                final type = (item['event_type'] as String?) ?? 'event';
+                final isFail = type == 'login_failed';
+                final isAlert = type == 'fraud_alert';
+                return _PanelRow(
+                  icon: isAlert
+                      ? Icons.warning_amber_rounded
+                      : isFail
+                          ? Icons.gpp_bad_rounded
+                          : Icons.shield_outlined,
+                  iconColor: isAlert
+                      ? AppColors.warningText
+                      : isFail
+                          ? AppColors.dangerText
+                          : AppColors.successText,
+                  iconBg: isAlert
+                      ? AppColors.warningTint
+                      : isFail
+                          ? AppColors.dangerLight
+                          : AppColors.successTint,
+                  title: '$type • ${item['status'] ?? ''}',
+                  subtitle:
+                      '${item['email'] ?? 'Unknown user'} • ${item['ip_address'] ?? 'No IP'} • ${_date(item['created_at'])}',
+                );
+              }).toList(),
+            ),
+    );
+  }
+
+  // ── Reports ─────────────────────────────────────────────────────────────
+  Widget _reportsView() {
+    return _Panel(
+      title: 'Reports',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Generate a snapshot of revenue, bookings, and security events.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _generateReport,
+            icon: const Icon(Icons.download_rounded),
+            label: const Text('Generate report'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.brandVivid,
+              foregroundColor: AppColors.textOnBrand,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 22,
+                vertical: 14,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _transactionsView() => _Panel(
-        title: 'Transactions',
-        child: Column(
-          children: _transactions
-              .map((item) => ListTile(
-                    title: Text('ZMW ${item['amount'] ?? 0} - ${item['status'] ?? 'pending'}'),
-                    subtitle: Text('${item['company_name'] ?? 'Unknown company'} - ${_date(item['created_at'])}'),
-                  ))
-              .toList(),
+  Widget _emptyText(String text) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        child: Text(
+          text,
+          style: const TextStyle(color: AppColors.textSecondary),
+          textAlign: TextAlign.center,
         ),
       );
 
-  Widget _logsView() => _Panel(
-        title: 'Security Logs',
-        child: Column(
-          children: _logs
-              .map((item) => ListTile(
-                    leading: const Icon(Icons.shield_outlined),
-                    title: Text('${item['event_type'] ?? 'event'} - ${item['status'] ?? ''}'),
-                    subtitle: Text('${item['email'] ?? 'Unknown user'} - ${item['ip_address'] ?? 'No IP'} - ${_date(item['created_at'])}'),
-                  ))
-              .toList(),
+  List<Map<String, dynamic>> _list(dynamic value) => value is List
+      ? value.whereType<Map<String, dynamic>>().toList()
+      : const [];
+
+  String _date(dynamic raw) => raw is String
+      ? DateFormat('d MMM HH:mm')
+          .format(DateTime.tryParse(raw)?.toLocal() ?? DateTime.now())
+      : 'No date';
+}
+
+// ===========================================================================
+// Layout pieces
+// ===========================================================================
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.section, required this.onLogout});
+
+  final String section;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Super Admin',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                section,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-
-  Widget _reportsView() => _Panel(
-        title: 'Reports',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Downloadable report data is available from /admin/reports.'),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _generateReport,
-              icon: const Icon(Icons.download_rounded),
-              label: const Text('Generate report'),
-            ),
-          ],
+        IconButton.filledTonal(
+          onPressed: onLogout,
+          icon: const Icon(Icons.logout_rounded),
+          style: IconButton.styleFrom(
+            backgroundColor: AppColors.dangerLight,
+            foregroundColor: AppColors.dangerText,
+          ),
         ),
-      );
-
-  Widget _statsGrid(List<Widget> cards) => LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth > 700 ? (constraints.maxWidth - 36) / 4 : (constraints.maxWidth - 12) / 2;
-          return Wrap(spacing: 12, runSpacing: 12, children: cards.map((card) => SizedBox(width: width, child: card)).toList());
-        },
-      );
-
-  List<Map<String, dynamic>> _list(dynamic value) => value is List ? value.whereType<Map<String, dynamic>>().toList() : const [];
-  String _date(dynamic raw) => raw is String ? DateFormat('d MMM HH:mm').format(DateTime.tryParse(raw)?.toLocal() ?? DateTime.now()) : 'No date';
+      ],
+    );
+  }
 }
 
 class _Panel extends StatelessWidget {
-  const _Panel({required this.title, required this.child, this.trailing});
+  const _Panel({
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
+
   final String title;
   final Widget child;
   final Widget? trailing;
@@ -294,42 +494,153 @@ class _Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+      margin: const EdgeInsets.only(bottom: 16),
+      child: AppCard(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
+            ),
+            const SizedBox(height: 16),
+            child,
+          ],
+        ),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))), if (trailing != null) trailing!]),
-        const SizedBox(height: 12),
-        child,
-      ]),
     );
   }
 }
+
+class _PanelRow extends StatelessWidget {
+  const _PanelRow({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: iconBg,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: iconColor, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 12),
+            trailing!,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleFilterMenu extends StatelessWidget {
+  const _RoleFilterMenu({required this.value, required this.onChanged});
+
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: DropdownButton<String>(
+        value: value,
+        underline: const SizedBox.shrink(),
+        items: const [
+          DropdownMenuItem(value: 'all', child: Text('All')),
+          DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
+          DropdownMenuItem(value: 'company_admin', child: Text('Company')),
+          DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
+          DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
+        ],
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+// ===========================================================================
+// Side nav
+// ===========================================================================
 
 class _AdminSideNav extends StatelessWidget {
   const _AdminSideNav({
     required this.selectedIndex,
     required this.onSelected,
     required this.onLogout,
+    required this.expanded,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final VoidCallback onLogout;
+  final bool expanded;
 
   static const _items = [
-    (icon: Icons.grid_view_rounded, label: 'Dashboard'),
+    (icon: Icons.grid_view_rounded, label: 'Overview'),
     (icon: Icons.business_outlined, label: 'Companies'),
     (icon: Icons.people_outline, label: 'Users'),
     (icon: Icons.payments_outlined, label: 'Transactions'),
@@ -340,92 +651,151 @@ class _AdminSideNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 104,
-      padding: const EdgeInsets.fromLTRB(12, 22, 12, 16),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(right: BorderSide(color: AppColors.border)),
-      ),
-      child: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(Icons.shield_outlined, color: Colors.white),
-            ),
-            const SizedBox(height: 18),
-            Expanded(
-              child: ListView.separated(
-                itemCount: _items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final item = _items[index];
-                  final selected = selectedIndex == index;
-                  return Tooltip(
-                    message: item.label,
-                    child: InkWell(
-                      onTap: () => onSelected(index),
-                      borderRadius: BorderRadius.circular(16),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? AppColors.accentLight
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          children: [
-                            Icon(
-                              item.icon,
-                              color: selected
-                                  ? AppColors.accent
-                                  : AppColors.textMuted,
-                              size: 22,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              item.label,
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight:
-                                    selected ? FontWeight.w800 : FontWeight.w600,
-                                color: selected
-                                    ? AppColors.accent
-                                    : AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
+      width: expanded ? 240 : 88,
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+      color: AppColors.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    gradient: AppColors.brandGradientShort,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.shield_outlined,
+                    color: AppColors.textOnBrand,
+                    size: 20,
+                  ),
+                ),
+                if (expanded) ...[
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'SecureMove\nadmin',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                        height: 1.2,
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                ],
+              ],
             ),
-            IconButton.filledTonal(
-              onPressed: onLogout,
-              icon: const Icon(Icons.logout_rounded),
-              style: IconButton.styleFrom(
-                backgroundColor: AppColors.accentLight,
-                foregroundColor: AppColors.accent,
-              ),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _items.length,
+              itemBuilder: (context, index) {
+                final item = _items[index];
+                final selected = selectedIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => onSelected(index),
+                      borderRadius: BorderRadius.circular(12),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: expanded ? 12 : 0,
+                          vertical: expanded ? 11 : 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? AppColors.brandTint
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: expanded
+                            ? Row(
+                                children: [
+                                  Icon(
+                                    item.icon,
+                                    size: 20,
+                                    color: selected
+                                        ? AppColors.brandPrimary
+                                        : AppColors.textMuted,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    item.label,
+                                    style: TextStyle(
+                                      color: selected
+                                          ? AppColors.brandPrimary
+                                          : AppColors.textSecondary,
+                                      fontWeight: selected
+                                          ? FontWeight.w700
+                                          : FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Tooltip(
+                                message: item.label,
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      item.icon,
+                                      color: selected
+                                          ? AppColors.brandPrimary
+                                          : AppColors.textMuted,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      item.label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: selected
+                                            ? AppColors.brandPrimary
+                                            : AppColors.textSecondary,
+                                        fontWeight: selected
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-          ],
-        ),
+          ),
+          IconButton.filledTonal(
+            onPressed: onLogout,
+            icon: const Icon(Icons.logout_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: AppColors.dangerLight,
+              foregroundColor: AppColors.dangerText,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
+// ===========================================================================
+// Loading skeleton
+// ===========================================================================
 
 class _AdminSkeleton extends StatelessWidget {
   const _AdminSkeleton();

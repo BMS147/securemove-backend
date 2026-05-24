@@ -2,9 +2,9 @@ class BackendConfig {
   BackendConfig._();
 
   static const _defaultRenderAuthBaseUrl =
-      'https://securemove-backend.onrender.com';
+      'http://localhost:3000';
   static const _defaultRenderPaymentBaseUrl =
-      'https://securemove-backend.onrender.com';
+      'http://localhost:3000';
 
   static const _configuredApiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',

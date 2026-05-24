@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/breakpoints.dart';
 
+/// Standard top-of-screen header for non-shell pages.
+///
+/// Renders a small subtitle above a large title, with optional trailing
+/// icon-action. Padding and font size scale with the breakpoint.
 class WorkspaceHeader extends StatelessWidget {
   const WorkspaceHeader({
     super.key,
@@ -19,8 +23,16 @@ class WorkspaceHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Breakpoints.isDesktop(context);
+    final isMobile = Breakpoints.isMobile(context);
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 60, 24, 20),
+      padding: EdgeInsets.fromLTRB(
+        isDesktop ? 32 : 24,
+        isDesktop ? 28 : 50,
+        isDesktop ? 32 : 24,
+        18,
+      ),
       color: AppColors.background,
       child: Row(
         children: [
@@ -36,11 +48,11 @@ class WorkspaceHeader extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   title,
-                  style: GoogleFonts.inter(
-                    fontSize: 26,
+                  style: TextStyle(
+                    fontSize: isMobile ? 24 : 28,
                     fontWeight: FontWeight.w800,
                     color: AppColors.textPrimary,
                     letterSpacing: -0.8,
@@ -49,15 +61,16 @@ class WorkspaceHeader extends StatelessWidget {
               ],
             ),
           ),
-          IconButton.filledTonal(
-            onPressed: onAction,
-            style: IconButton.styleFrom(
-              backgroundColor: AppColors.accentLight,
-              foregroundColor: AppColors.accent,
-              fixedSize: const Size(48, 48),
+          if (onAction != null)
+            IconButton.filledTonal(
+              onPressed: onAction,
+              style: IconButton.styleFrom(
+                backgroundColor: AppColors.brandTint,
+                foregroundColor: AppColors.brandPrimary,
+                fixedSize: const Size(48, 48),
+              ),
+              icon: Icon(actionIcon),
             ),
-            icon: Icon(actionIcon),
-          ),
         ],
       ),
     );

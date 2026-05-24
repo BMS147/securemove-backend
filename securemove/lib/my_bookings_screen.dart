@@ -2,12 +2,20 @@ import 'package:flutter/material.dart';
 
 import 'booking_service.dart';
 import 'theme/app_colors.dart';
+import 'theme/breakpoints.dart';
+import 'widgets/design_system/app_card.dart';
+import 'widgets/design_system/state_card.dart';
+import 'widgets/design_system/status_pill.dart';
 import 'widgets/error_banner.dart';
 import 'widgets/skeleton_card.dart';
 import 'widgets/workspace_header.dart';
 
 class MyBookingsScreen extends StatefulWidget {
-  const MyBookingsScreen({super.key});
+  const MyBookingsScreen({super.key, this.embedded = false});
+
+  /// When true, the screen is a tab inside [TravelerShell]. We omit the
+  /// back-button affordance on the header.
+  final bool embedded;
 
   @override
   State<MyBookingsScreen> createState() => _MyBookingsScreenState();
@@ -17,10 +25,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: const Column(
+      backgroundColor: AppColors.background,
+      body: Column(
         children: [
-          WorkspaceHeader(title: 'My bookings', subtitle: 'Tickets and trips'),
-          Expanded(child: MyBookingsView()),
+          WorkspaceHeader(
+            title: 'My bookings',
+            subtitle: widget.embedded
+                ? 'Tickets and upcoming trips'
+                : 'Tickets and trips',
+          ),
+          const Expanded(child: MyBookingsView()),
         ],
       ),
     );
@@ -36,6 +50,7 @@ class MyBookingsView extends StatefulWidget {
 
 class _MyBookingsViewState extends State<MyBookingsView> {
   late Future<List<BookingRecord>> _futureBookings;
+  String _filter = 'all';
 
   @override
   void initState() {
@@ -49,24 +64,22 @@ class _MyBookingsViewState extends State<MyBookingsView> {
     await future;
   }
 
+  List<BookingRecord> _applyFilter(List<BookingRecord> all) {
+    if (_filter == 'all') return all;
+    return all
+        .where((b) => b.status.toLowerCase() == _filter.toLowerCase())
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Breakpoints.isDesktop(context);
+
     return FutureBuilder<List<BookingRecord>>(
       future: _futureBookings,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                SkeletonCard(height: 126),
-                SizedBox(height: 12),
-                SkeletonCard(height: 126),
-                SizedBox(height: 12),
-                SkeletonCard(height: 126),
-              ],
-            ),
-          );
+          return _LoadingState(isDesktop: isDesktop);
         }
 
         if (snapshot.hasError) {
@@ -82,99 +95,84 @@ class _MyBookingsViewState extends State<MyBookingsView> {
 
         final bookings = snapshot.data ?? const <BookingRecord>[];
         if (bookings.isEmpty) {
-          return _StateCard(
+          return StateCard(
             icon: Icons.confirmation_number_outlined,
             title: 'No bookings yet',
             message:
-                'Your confirmed and reserved trips will appear here once the backend starts returning live booking records.',
+                'Your confirmed and reserved trips will appear here once you book your first ride.',
             actionLabel: 'Refresh',
-            onPressed: _refresh,
+            onAction: _refresh,
           );
         }
 
+        // Status counts for the filter strip
+        final counts = <String, int>{'all': bookings.length};
+        for (final b in bookings) {
+          counts[b.status.toLowerCase()] =
+              (counts[b.status.toLowerCase()] ?? 0) + 1;
+        }
+        final filtered = _applyFilter(bookings);
+
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
-            itemCount: bookings.length,
-            itemBuilder: (context, index) {
-              final booking = bookings[index];
-              final routeLabel =
-                  booking.origin == null || booking.destination == null
-                      ? 'Trip #${booking.tripId}'
-                      : '${booking.origin} to ${booking.destination}';
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 14),
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.border),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0A000000),
-                      blurRadius: 12,
-                      offset: Offset(0, 4),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: Breakpoints.contentMaxWidth,
+              ),
+              child: CustomScrollView(
+                slivers: [
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(
+                      isDesktop ? 32 : 18,
+                      8,
+                      isDesktop ? 32 : 18,
+                      14,
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            routeLabel,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
+                    sliver: SliverToBoxAdapter(
+                      child: _FilterStrip(
+                        current: _filter,
+                        counts: counts,
+                        onChanged: (v) => setState(() => _filter = v),
+                      ),
+                    ),
+                  ),
+                  if (isDesktop)
+                    SliverPadding(
+                      padding:
+                          const EdgeInsets.fromLTRB(32, 0, 32, 24),
+                      sliver: SliverGrid(
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 460,
+                          mainAxisSpacing: 16,
+                          crossAxisSpacing: 16,
+                          mainAxisExtent: 230,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) => _BookingCard(
+                            booking: filtered[index],
                           ),
-                        ),
-                        _StatusPill(label: booking.status),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if ((booking.companyName ?? '').isNotEmpty)
-                      Text(
-                        booking.companyName!,
-                        style: const TextStyle(
-                          color: Color(0xFF5E6C87),
-                          fontWeight: FontWeight.w600,
+                          childCount: filtered.length,
                         ),
                       ),
-                    if ((booking.departureTime ?? '').isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        'Departure: ${booking.departureTime}',
-                        style: const TextStyle(color: Color(0xFF5E6C87)),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                      sliver: SliverList.builder(
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _BookingCard(booking: filtered[index]),
+                          );
+                        },
                       ),
-                    ],
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _DetailColumn(
-                          label: 'Reference',
-                          value: booking.bookingReference,
-                        ),
-                        _DetailColumn(
-                          label: 'Amount',
-                          value: booking.totalAmountLabel,
-                        ),
-                        _DetailColumn(
-                          label: 'Booked',
-                          value:
-                              '${booking.createdAt.day}/${booking.createdAt.month}/${booking.createdAt.year}',
-                        ),
-                      ],
                     ),
-                  ],
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -182,73 +180,182 @@ class _MyBookingsViewState extends State<MyBookingsView> {
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label});
+// ===========================================================================
+// Filter strip — all / paid / reserved / cancelled
+// ===========================================================================
 
-  final String label;
+class _FilterStrip extends StatelessWidget {
+  const _FilterStrip({
+    required this.current,
+    required this.counts,
+    required this.onChanged,
+  });
+
+  final String current;
+  final Map<String, int> counts;
+  final ValueChanged<String> onChanged;
+
+  static const _options = [
+    ('all', 'All'),
+    ('paid', 'Paid'),
+    ('reserved', 'Reserved'),
+    ('cancelled', 'Cancelled'),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final normalized = label.toLowerCase();
-    final background = switch (normalized) {
-      'paid' => const Color(0xFFEAFBF4),
-      'reserved' => const Color(0xFFEFF4FF),
-      'cancelled' => const Color(0xFFFFECE8),
-      _ => const Color(0xFFF4F7FD),
-    };
-    final foreground = switch (normalized) {
-      'paid' => const Color(0xFF237A50),
-      'reserved' => const Color(0xFF2A54C6),
-      'cancelled' => const Color(0xFFC44B2C),
-      _ => const Color(0xFF5E6C87),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (value, label) in _options) ...[
+            _FilterChip(
+              label: '$label (${counts[value] ?? 0})',
+              selected: current == value,
+              onTap: () => onChanged(value),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: foreground,
-          fontWeight: FontWeight.w700,
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.brandPrimary : AppColors.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? AppColors.brandPrimary : AppColors.border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? AppColors.textOnBrand : AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _DetailColumn extends StatelessWidget {
-  const _DetailColumn({
-    required this.label,
-    required this.value,
-  });
+// ===========================================================================
+// Booking card
+// ===========================================================================
 
-  final String label;
-  final String value;
+class _BookingCard extends StatelessWidget {
+  const _BookingCard({required this.booking});
+
+  final BookingRecord booking;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
+    final routeLabel =
+        booking.origin == null || booking.destination == null
+            ? 'Trip #${booking.tripId}'
+            : '${booking.origin} → ${booking.destination}';
+
+    return AppCard(
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Color(0xFF7D8AA3),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  routeLabel,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+              StatusPill.fromLabel(booking.status),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
+          if ((booking.companyName ?? '').isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              booking.companyName!,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
             ),
+          ],
+          if ((booking.departureTime ?? '').isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 14,
+                  color: AppColors.textMuted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  booking.departureTime!,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const Spacer(),
+          const Divider(height: 24, color: AppColors.border),
+          Row(
+            children: [
+              Expanded(
+                child: _DetailColumn(
+                  label: 'Reference',
+                  value: booking.bookingReference,
+                ),
+              ),
+              Expanded(
+                child: _DetailColumn(
+                  label: 'Amount',
+                  value: booking.totalAmountLabel,
+                ),
+              ),
+              Expanded(
+                child: _DetailColumn(
+                  label: 'Booked',
+                  value:
+                      '${booking.createdAt.day}/${booking.createdAt.month}/${booking.createdAt.year}',
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -256,79 +363,79 @@ class _DetailColumn extends StatelessWidget {
   }
 }
 
-class _StateCard extends StatelessWidget {
-  const _StateCard({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onPressed,
-  });
+class _DetailColumn extends StatelessWidget {
+  const _DetailColumn({required this.label, required this.value});
 
-  final IconData icon;
-  final String title;
-  final String message;
-  final String actionLabel;
-  final Future<void> Function() onPressed;
+  final String label;
+  final String value;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x100F2554),
-                blurRadius: 28,
-                offset: Offset(0, 16),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 70,
-                height: 70,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF4FF),
-                  borderRadius: BorderRadius.circular(22),
-                ),
-                child: Icon(icon, color: const Color(0xFF2A54C6), size: 34),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFF5E6C87),
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () {
-                  onPressed();
-                },
-                child: Text(actionLabel),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.textMuted,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
           ),
         ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textPrimary,
+            fontSize: 13,
+          ),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+}
+
+// ===========================================================================
+// Loading skeleton
+// ===========================================================================
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState({required this.isDesktop});
+
+  final bool isDesktop;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isDesktop) {
+      return Padding(
+        padding: const EdgeInsets.all(32),
+        child: GridView.count(
+          crossAxisCount: 2,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 16,
+          childAspectRatio: 2,
+          children: const [
+            SkeletonCard(height: 200),
+            SkeletonCard(height: 200),
+            SkeletonCard(height: 200),
+            SkeletonCard(height: 200),
+          ],
+        ),
+      );
+    }
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        children: [
+          SkeletonCard(height: 126),
+          SizedBox(height: 12),
+          SkeletonCard(height: 126),
+          SizedBox(height: 12),
+          SkeletonCard(height: 126),
+        ],
       ),
     );
   }

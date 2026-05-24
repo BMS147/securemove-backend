@@ -65,10 +65,18 @@ class MobileMoneyResult {
       );
     }
 
+    // Prefer the top-level message, then fall back to the failure reason
+    // returned by Lenco inside providerStatus (e.g. "Not enough funds").
+    final providerStatus = json['providerStatus'] as Map<String, dynamic>?;
+    final reason = providerStatus?['reason'] as String?;
+    final message = (json['message'] as String?)?.isNotEmpty == true
+        ? json['message'] as String
+        : (reason?.isNotEmpty == true ? reason : null);
+
     return MobileMoneyResult(
       payment: MobileMoneyPayment.fromJson(payment),
-      providerStatus: json['providerStatus'],
-      message: json['message'] as String?,
+      providerStatus: providerStatus,
+      message: message,
     );
   }
 

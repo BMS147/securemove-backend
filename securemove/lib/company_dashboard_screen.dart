@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'theme/app_colors.dart';
 
 import 'company_service.dart';
 import 'company_drivers_screen.dart';
@@ -91,7 +92,7 @@ class _CompanyDashboardScreenState extends State<CompanyDashboardScreen> {
                   padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF17357E), Color(0xFF3564F2)],
+                      colors: [AppColors.brandDeep, AppColors.brandVivid],
                     ),
                     borderRadius: BorderRadius.circular(28),
                   ),
@@ -211,7 +212,7 @@ class _MetricCard extends StatelessWidget {
           Text(
             metric.label,
             style: const TextStyle(
-              color: Color(0xFF6C7894),
+              color: AppColors.textSecondary,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -269,7 +270,7 @@ class _DashboardStateCard extends StatelessWidget {
                 message,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Color(0xFF5E6C87),
+                  color: AppColors.textSecondary,
                   height: 1.4,
                 ),
               ),
