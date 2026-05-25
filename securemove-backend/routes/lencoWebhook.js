@@ -109,11 +109,29 @@ router.post('/', async (req, res) => {
 
     // If successful → mark booking paid + issue ticket
     if (nextStatus === 'successful') {
-      await fulfillPaidBooking(
-        payment.booking_id,
-        data.transactionReference || data.nipSessionId || null
-      );
-      console.log(`[Lenco webhook] Booking ${payment.booking_id} fulfilled — ticket issued`);
+      try {
+        await fulfillPaidBooking(
+          payment.booking_id,
+          data.transactionReference || data.nipSessionId || null
+        );
+        console.log(`[Lenco webhook] Booking ${payment.booking_id} fulfilled — ticket issued`);
+      } catch (fulfillErr) {
+        console.error(
+          `[Lenco webhook] Fulfillment failed for booking ${payment.booking_id}:`,
+          fulfillErr.message
+        );
+        // Write to audit_logs so admins can see and retry failed fulfillments
+        await pool.query(
+          `INSERT INTO audit_logs (event_type, status, severity, details)
+           VALUES ('ticket_fulfillment_failed', 'failed', 'high', $1)`,
+          [JSON.stringify({
+            bookingId: payment.booking_id,
+            paymentId: payment.payment_id,
+            lencoReference: ourReference,
+            error: fulfillErr.message,
+          })]
+        ).catch(logErr => console.error('[Lenco webhook] Failed to write audit log:', logErr.message));
+      }
     }
 
     console.log(`[Lenco webhook] Payment ${payment.payment_id} updated to ${nextStatus}`);

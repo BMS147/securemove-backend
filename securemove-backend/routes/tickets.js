@@ -1,4 +1,5 @@
 const express = require('express');
+const QRCode = require('qrcode');
 
 const pool = require('../db');
 const authenticateToken = require('../middleware/authenticateToken');
@@ -61,6 +62,49 @@ router.get('/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Fetch ticket error:', err.message);
     return res.status(500).json({ error: 'Unable to fetch ticket' });
+  }
+});
+
+router.get('/:id/qr', authenticateToken, async (req, res) => {
+  const ticketId = Number.parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(ticketId) || ticketId <= 0) {
+    return res.status(400).json({ error: 'A valid ticket id is required' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT t.ticket_id, t.qr_code_hash, t.status
+       FROM tickets t
+       INNER JOIN bookings b ON b.booking_id = t.booking_id
+       WHERE t.ticket_id = $1 AND b.user_id = $2`,
+      [ticketId, req.user.user_id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+
+    const ticket = result.rows[0];
+
+    if (!ticket.qr_code_hash) {
+      return res.status(409).json({ error: 'QR code is not available for this ticket yet' });
+    }
+
+    const format = (req.query.format || 'png').toLowerCase();
+
+    if (format === 'base64') {
+      const dataUrl = await QRCode.toDataURL(ticket.qr_code_hash, { width: 300, margin: 2 });
+      return res.json({ qr: dataUrl, ticketId: ticket.ticket_id, status: ticket.status });
+    }
+
+    const pngBuffer = await QRCode.toBuffer(ticket.qr_code_hash, { width: 300, margin: 2 });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.send(pngBuffer);
+  } catch (err) {
+    console.error('Generate QR code error:', err.message);
+    return res.status(500).json({ error: 'Unable to generate QR code' });
   }
 });
 

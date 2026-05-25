@@ -307,7 +307,23 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
       );
 
       if (nextStatus === 'successful') {
-        await fulfillPaidBooking(payment.booking_id, providerStatus.financialTransactionId || null);
+        try {
+          await fulfillPaidBooking(payment.booking_id, providerStatus.financialTransactionId || null);
+        } catch (fulfillErr) {
+          console.error(
+            `[Payment polling] Fulfillment failed for booking ${payment.booking_id}:`,
+            fulfillErr.message
+          );
+          await pool.query(
+            `INSERT INTO audit_logs (event_type, status, severity, details)
+             VALUES ('ticket_fulfillment_failed', 'failed', 'high', $1)`,
+            [JSON.stringify({
+              bookingId: payment.booking_id,
+              paymentId: payment.payment_id,
+              error: fulfillErr.message,
+            })]
+          ).catch(() => {});
+        }
       }
     }
 
@@ -318,10 +334,22 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
       [payment.payment_id]
     );
 
-    return res.json({
-      payment: refreshed.rows[0],
-      providerStatus,
-    });
+    const response = { payment: refreshed.rows[0], providerStatus };
+
+    // When payment succeeds, include the generated tickets so the client can
+    // immediately display QR codes without an extra round-trip.
+    if (refreshed.rows[0].status === 'successful') {
+      const ticketsResult = await pool.query(
+        `SELECT ticket_id, passenger_name, seat_number, ticket_number, status, created_at
+         FROM tickets
+         WHERE booking_id = $1
+         ORDER BY ticket_id ASC`,
+        [payment.booking_id]
+      );
+      response.tickets = ticketsResult.rows;
+    }
+
+    return res.json(response);
   } catch (err) {
     console.error('Check payment status error:', err.message);
     return res.status(500).json({ error: err.message || 'Unable to check payment status' });

@@ -81,8 +81,8 @@ function seatLabel(index) {
   return `${String.fromCharCode(65 + Math.floor(index / 4))}${(index % 4) + 1}`;
 }
 
-function priceFromSchedule(priceStr) {
-  return parseFloat(String(priceStr || '250').replace(/[^0-9.]/g, '')) || 250;
+function priceFromSchedule(_priceStr) {
+  return 1;
 }
 
 function daysAgo(n) {
@@ -155,6 +155,9 @@ async function seed() {
 
   await pool.query("UPDATE companies SET approval_status = 'approved'");
   console.log('All companies approved');
+
+  await pool.query("UPDATE route_schedules SET price = 'K1'");
+  console.log('All route prices set to K1 for testing');
 
   // -- Users ---------------------------------------------------------------
   const userIds = {};

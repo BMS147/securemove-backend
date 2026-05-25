@@ -14,8 +14,12 @@ const jwt = require('jsonwebtoken');
  * Mark a booking as paid and create its ticket if not already done.
  * Safe to call multiple times — all writes are idempotent.
  *
+ * On success sets fulfillment_status = 'fulfilled'.
+ * On failure sets fulfillment_status = 'failed' + fulfillment_error, then
+ * rethrows so the caller (webhook / polling handler) can log to audit_logs.
+ *
  * @param {number} bookingId
- * @param {string} financialTransactionId  Optional provider transaction ID to store.
+ * @param {string|null} financialTransactionId  Optional provider transaction ID.
  * @returns {Promise<void>}
  */
 async function fulfillPaidBooking(bookingId, financialTransactionId = null) {
@@ -26,7 +30,29 @@ async function fulfillPaidBooking(bookingId, financialTransactionId = null) {
     [bookingId]
   );
 
-  await ensureTicketExists(bookingId);
+  try {
+    await ensureTicketExists(bookingId);
+
+    // Mark fulfillment as successful (idempotent — safe to set again if already fulfilled)
+    await pool.query(
+      `UPDATE bookings
+       SET fulfillment_status = 'fulfilled', fulfillment_error = NULL, updated_at = NOW()
+       WHERE booking_id = $1`,
+      [bookingId]
+    );
+  } catch (err) {
+    // Persist the failure so admins can see it and retry
+    await pool.query(
+      `UPDATE bookings
+       SET fulfillment_status = 'failed',
+           fulfillment_error  = $2,
+           updated_at         = NOW()
+       WHERE booking_id = $1`,
+      [bookingId, err.message]
+    ).catch(() => {}); // never let the audit write mask the original error
+
+    throw err; // rethrow so webhook / polling handlers can log to audit_logs
+  }
 }
 
 /**
