@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
+const bcrypt = require('bcrypt');
 const pool = require('../db');
 
 const companies = [
@@ -9,6 +10,31 @@ const companies = [
   'Mazhandu Family Bus',
   'Shalom',
   'UBZ',
+];
+
+const demoPassword = 'SecureMove2024!';
+
+const demoUsers = [
+  user('System Admin', 'admin@securemove.dev', 3),
+  user('Chanda Mwale', 'chanda@powertools.dev', 2, 'Power Tools'),
+  user('Mary Phiri', 'mary@likili.dev', 2, 'Likili Motorways'),
+  user('James Banda', 'james@mazhandu.dev', 2, 'Mazhandu Family Bus'),
+  user('Susan Tembo', 'susan@shalom.dev', 2, 'Shalom'),
+  user('Victor Zulu', 'victor@ubz.dev', 2, 'UBZ'),
+  user('Benson Phiri', 'benson.phiri@securemove.dev', 4, 'Power Tools'),
+  user('Ruth Mwila', 'ruth.mwila@securemove.dev', 4, 'Likili Motorways'),
+  user('Peter Banda', 'peter.banda@securemove.dev', 4, 'Mazhandu Family Bus'),
+  user('Grace Tembo', 'grace.tembo@securemove.dev', 4, 'Shalom'),
+  user('Daniel Zulu', 'daniel.zulu@securemove.dev', 4, 'UBZ'),
+  user('Officer Banda', 'officer.banda@securemove.dev', 5, 'Power Tools'),
+  user('Officer Mwansa', 'officer.mwansa@securemove.dev', 5, 'Likili Motorways'),
+  user('Officer Chirwa', 'officer.chirwa@securemove.dev', 5, 'Mazhandu Family Bus'),
+  user('Officer Tembo', 'officer.tembo@securemove.dev', 5, 'Shalom'),
+  user('Officer Zulu', 'officer.zulu@securemove.dev', 5, 'UBZ'),
+  user('Temwa Banda', 'temwa@test.dev', 1),
+  user('Chisomo Nkosi', 'chisomo@test.dev', 1),
+  user('Mutale Mwanza', 'mutale@test.dev', 1),
+  user('Lombe Kapasa', 'lombe@test.dev', 1),
 ];
 
 const drivers = [
@@ -212,6 +238,8 @@ async function seedBaseData() {
   const companyResult = await pool.query('SELECT company_id, name FROM companies ORDER BY company_id ASC');
   const companyIds = Object.fromEntries(companyResult.rows.map((row) => [row.name, row.company_id]));
 
+  await seedDemoUsers(companyIds);
+
   for (const item of drivers) {
     await upsertDriver(companyIds, item);
   }
@@ -251,6 +279,10 @@ function route(companyName, departureTime, price, durationMinutes, features) {
   return { companyName, departureTime, price, durationMinutes, features };
 }
 
+function user(name, email, roleId, companyName = null) {
+  return { name, email, roleId, companyName };
+}
+
 function driver(companyName, fullName, email, phoneNumber, licenseNumber) {
   return { companyName, fullName, email, phoneNumber, licenseNumber };
 }
@@ -261,6 +293,25 @@ function conductor(companyName, fullName, email, phoneNumber, badgeNumber) {
 
 function bus(companyName, registrationNumber, capacity, features) {
   return { companyName, registrationNumber, capacity, features };
+}
+
+async function seedDemoUsers(companyIds) {
+  const passwordHash = await bcrypt.hash(demoPassword, 10);
+
+  for (const item of demoUsers) {
+    const companyId = item.companyName ? companyIds[item.companyName] : null;
+
+    await pool.query(
+      `INSERT INTO users (name, email, password_hash, role_id, company_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (email) DO UPDATE
+       SET name = EXCLUDED.name,
+           password_hash = EXCLUDED.password_hash,
+           role_id = EXCLUDED.role_id,
+           company_id = EXCLUDED.company_id`,
+      [item.name, item.email, passwordHash, item.roleId, companyId]
+    );
+  }
 }
 
 async function upsertDriver(companyIds, item) {
