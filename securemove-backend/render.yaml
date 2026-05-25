@@ -2,8 +2,9 @@ services:
   - type: web
     name: securemove-backend
     runtime: node
+    rootDir: securemove-backend
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /
     envVars:
