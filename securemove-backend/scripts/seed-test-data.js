@@ -22,11 +22,14 @@ const pool = require('../db');
 
 const PASSWORD = 'SecureMove2024!';
 const SALT_ROUNDS = 10;
-const QR_SECRET = process.env.TICKET_QR_SECRET || process.env.JWT_SECRET || 'supersecretkey';
+const QR_SECRET = process.env.TICKET_SECRET || process.env.TICKET_QR_SECRET;
+if (!QR_SECRET || QR_SECRET.length < 64) {
+  throw new Error('TICKET_SECRET must be set and at least 64 characters long.');
+}
 
 // ---------------------------------------------------------------------------
 // User definitions
-// Conductor emails must exactly match drivers.email seeded by init-db.js
+// Driver and conductor emails are intentionally separate.
 // ---------------------------------------------------------------------------
 const TEST_USERS = [
   // Super admin
@@ -40,11 +43,18 @@ const TEST_USERS = [
   { name: 'Victor Zulu',    email: 'victor@ubz.dev',              role_id: 2, companyName: 'UBZ' },
 
   // Conductors — must match driver emails exactly
-  { name: 'Benson Phiri',   email: 'benson.phiri@securemove.dev', role_id: 5, companyName: 'Power Tools' },
-  { name: 'Ruth Mwila',     email: 'ruth.mwila@securemove.dev',   role_id: 5, companyName: 'Likili Motorways' },
-  { name: 'Peter Banda',    email: 'peter.banda@securemove.dev',  role_id: 5, companyName: 'Mazhandu Family Bus' },
-  { name: 'Grace Tembo',    email: 'grace.tembo@securemove.dev',  role_id: 5, companyName: 'Shalom' },
-  { name: 'Daniel Zulu',    email: 'daniel.zulu@securemove.dev',  role_id: 5, companyName: 'UBZ' },
+  { name: 'Benson Phiri',   email: 'benson.phiri@securemove.dev', role_id: 4, companyName: 'Power Tools' },
+  { name: 'Ruth Mwila',     email: 'ruth.mwila@securemove.dev',   role_id: 4, companyName: 'Likili Motorways' },
+  { name: 'Peter Banda',    email: 'peter.banda@securemove.dev',  role_id: 4, companyName: 'Mazhandu Family Bus' },
+  { name: 'Grace Tembo',    email: 'grace.tembo@securemove.dev',  role_id: 4, companyName: 'Shalom' },
+  { name: 'Daniel Zulu',    email: 'daniel.zulu@securemove.dev',  role_id: 4, companyName: 'UBZ' },
+
+  // Conductors / transport officers - separate from driver accounts
+  { name: 'Officer Banda',  email: 'officer.banda@securemove.dev',  role_id: 5, companyName: 'Power Tools' },
+  { name: 'Officer Mwansa', email: 'officer.mwansa@securemove.dev', role_id: 5, companyName: 'Likili Motorways' },
+  { name: 'Officer Chirwa', email: 'officer.chirwa@securemove.dev', role_id: 5, companyName: 'Mazhandu Family Bus' },
+  { name: 'Officer Tembo',  email: 'officer.tembo@securemove.dev',  role_id: 5, companyName: 'Shalom' },
+  { name: 'Officer Zulu',   email: 'officer.zulu@securemove.dev',   role_id: 5, companyName: 'UBZ' },
 
   // Passengers
   { name: 'Temwa Banda',    email: 'temwa@test.dev',              role_id: 1, companyName: null },
@@ -107,7 +117,21 @@ async function insertPayment(bookingId, amount, status, provider = 'airtel', day
 
 async function insertTicket(bookingId, passengerName, seatNumber, status = 'active', verifiedAt = null) {
   const ticketNumber = `SMT-${bookingRef()}`;
-  const qrPayload = jwt.sign({ ticketNumber, passengerName }, QR_SECRET);
+  const qrPayload = jwt.sign(
+    {
+      typ: 'securemove.ticket',
+      ticketNumber,
+      passengerName,
+      nonce: `${ticketNumber}-${crypto.randomBytes(8).toString('hex')}`,
+    },
+    QR_SECRET,
+    {
+      algorithm: 'HS256',
+      issuer: 'securemove-api',
+      audience: 'securemove-conductor',
+      expiresIn: '30d',
+    }
+  );
   await pool.query(
     `INSERT INTO tickets (booking_id, passenger_name, seat_number, ticket_number, qr_code_hash, status, verified_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -151,25 +175,25 @@ async function seed() {
   }
   console.log(`${TEST_USERS.length} users created / updated`);
 
-  // -- Drivers -------------------------------------------------------------
-  const { rows: driverRows } = await pool.query(
-    'SELECT driver_id, email, company_id FROM drivers'
+  // -- Conductors ----------------------------------------------------------
+  const { rows: conductorRows } = await pool.query(
+    'SELECT conductor_id, email, company_id FROM conductors'
   );
-  const driverByEmail = Object.fromEntries(driverRows.map(r => [r.email, r]));
+  const conductorByEmail = Object.fromEntries(conductorRows.map(r => [r.email, r]));
 
   // -- Today's trips — push departure times into the future ----------------
   // Each conductor gets one scannable trip 2-4 hours from now.
   const conductorOffsets = {
-    'benson.phiri@securemove.dev': 2,
-    'ruth.mwila@securemove.dev':   3,
-    'peter.banda@securemove.dev':  2,
-    'grace.tembo@securemove.dev':  4,
-    'daniel.zulu@securemove.dev':  3,
+    'officer.banda@securemove.dev':  2,
+    'officer.mwansa@securemove.dev': 3,
+    'officer.chirwa@securemove.dev': 2,
+    'officer.tembo@securemove.dev':  4,
+    'officer.zulu@securemove.dev':   3,
   };
 
   for (const [email, offsetHours] of Object.entries(conductorOffsets)) {
-    const driver = driverByEmail[email];
-    if (!driver) continue;
+    const conductor = conductorByEmail[email];
+    if (!conductor) continue;
 
     await pool.query(
       `UPDATE trips
@@ -178,12 +202,12 @@ async function seed() {
            status         = 'scheduled'
        WHERE trip_id = (
          SELECT trip_id FROM trips
-         WHERE (conductor_id = $3 OR driver_id = $3)
+         WHERE conductor_id = $3
            AND departure_time::date = CURRENT_DATE
          ORDER BY departure_time ASC
          LIMIT 1
        )`,
-      [hoursFromNow(offsetHours), hoursFromNow(offsetHours + 4), driver.driver_id]
+      [hoursFromNow(offsetHours), hoursFromNow(offsetHours + 4), conductor.conductor_id]
     );
   }
   console.log("Today's conductor trips set to future departure times");
@@ -224,10 +248,11 @@ async function seed() {
   const { rows: allSchedules } = await pool.query(
     `SELECT rs.schedule_id, rs.company_id, rs.origin, rs.destination,
             rs.price, rs.duration_minutes, rs.departure_time AS dep_time,
-            d.driver_id, bu.bus_id, bu.capacity
+            d.driver_id, co.conductor_id, bu.bus_id, bu.capacity
      FROM route_schedules rs
      LEFT JOIN companies c ON c.company_id = rs.company_id
      LEFT JOIN drivers d   ON d.company_id = rs.company_id AND d.is_active = TRUE
+     LEFT JOIN conductors co ON co.company_id = rs.company_id AND co.is_active = TRUE
      LEFT JOIN buses bu    ON bu.company_id = rs.company_id AND bu.is_active = TRUE
      WHERE rs.active = TRUE
      ORDER BY rs.schedule_id ASC
@@ -239,7 +264,7 @@ async function seed() {
 
   for (let day = 1; day <= 14; day++) {
     const schedule = allSchedules[day % allSchedules.length];
-    if (!schedule.driver_id || !schedule.bus_id) continue;
+    if (!schedule.driver_id || !schedule.conductor_id || !schedule.bus_id) continue;
 
     const depDate = new Date();
     depDate.setDate(depDate.getDate() - day);
@@ -255,9 +280,17 @@ async function seed() {
 
     const { rows: tripRows } = await pool.query(
       `INSERT INTO trips (schedule_id, bus_id, driver_id, conductor_id, departure_time, arrival_time, available_seats, status)
-       VALUES ($1, $2, $3, $3, $4, $5, $6, 'completed')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed')
        RETURNING trip_id`,
-      [schedule.schedule_id, schedule.bus_id, schedule.driver_id, depDate.toISOString(), arrDate.toISOString(), schedule.capacity]
+      [
+        schedule.schedule_id,
+        schedule.bus_id,
+        schedule.driver_id,
+        schedule.conductor_id,
+        depDate.toISOString(),
+        arrDate.toISOString(),
+        schedule.capacity,
+      ]
     );
     const tripId = tripRows[0].trip_id;
     const price = priceFromSchedule(schedule.price);

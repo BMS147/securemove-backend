@@ -14,6 +14,7 @@ router.put('/users/:id/role', superAdminOnly, controller.updateUserRole);
 router.delete('/users/:id', superAdminOnly, controller.deleteUser);
 router.get('/transactions', superAdminOnly, controller.transactions);
 router.get('/security-logs', superAdminOnly, controller.securityLogs);
+router.get('/scan-logs', superAdminOnly, controller.scanLogs);
 router.get('/reports', superAdminOnly, controller.reports);
 router.get('/analytics', superAdminOnly, controller.analytics);
 

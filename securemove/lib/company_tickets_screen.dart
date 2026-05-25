@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
 import 'company_service.dart';
-import 'driver_service.dart';
 
 class CompanyTicketsScreen extends StatefulWidget {
   const CompanyTicketsScreen({
@@ -20,7 +19,6 @@ class CompanyTicketsScreen extends StatefulWidget {
 
 class _CompanyTicketsScreenState extends State<CompanyTicketsScreen> {
   final CompanyService _companyService = CompanyService.instance;
-  final DriverService _driverService = DriverService.instance;
   final TextEditingController _verifyController = TextEditingController();
 
   List<CompanyTicket> _tickets = const [];
@@ -79,7 +77,7 @@ class _CompanyTicketsScreenState extends State<CompanyTicketsScreen> {
     });
 
     try {
-      final ticket = await _driverService.verifyTicket(code);
+      final ticket = await _companyService.verifyTicket(code);
       _verifyController.clear();
       await _load();
 

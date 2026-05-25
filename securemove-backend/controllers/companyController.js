@@ -17,7 +17,13 @@ async function dashboard(req, res) {
        WHERE rs.company_id = $1 AND tr.departure_time::date = CURRENT_DATE`,
       [companyId]
     ),
-    pool.query('SELECT COUNT(*)::int AS count FROM drivers WHERE company_id = $1 AND is_active = TRUE', [companyId]),
+    pool.query(
+      `SELECT (
+         (SELECT COUNT(*) FROM drivers WHERE company_id = $1 AND is_active = TRUE) +
+         (SELECT COUNT(*) FROM conductors WHERE company_id = $1 AND is_active = TRUE)
+       )::int AS count`,
+      [companyId]
+    ),
     pool.query(
       `SELECT COUNT(*)::int AS count, COALESCE(SUM(bk.total_amount) FILTER (WHERE bk.status = 'paid'), 0)::numeric AS revenue
        FROM bookings bk
@@ -169,11 +175,14 @@ async function listSchedules(req, res) {
   const result = await pool.query(
     `SELECT tr.trip_id, tr.schedule_id, tr.bus_id, tr.driver_id, tr.conductor_id, tr.departure_time,
             tr.arrival_time, tr.available_seats, tr.status,
-            rs.origin, rs.destination, b.registration_number, d.full_name AS driver_name
+            rs.origin, rs.destination, b.registration_number,
+            d.full_name AS driver_name,
+            co.full_name AS conductor_name
      FROM trips tr
      INNER JOIN route_schedules rs ON rs.schedule_id = tr.schedule_id
      LEFT JOIN buses b ON b.bus_id = tr.bus_id
      LEFT JOIN drivers d ON d.driver_id = tr.driver_id
+     LEFT JOIN conductors co ON co.conductor_id = tr.conductor_id
      WHERE rs.company_id = $1
      ORDER BY tr.departure_time ASC`,
     [companyIdFrom(req)]
@@ -186,15 +195,21 @@ async function createSchedule(req, res) {
   const scheduleId = Number(route_id || route);
   const busId = Number(bus_id || bus);
   const driverId = Number(driver_id || driver);
-  const conductorId = Number(conductor_id || conductor || driverId);
+  const conductorId = Number(conductor_id || conductor);
   if (!scheduleId || !busId || !driverId || !departure_time) {
     return res.status(400).json({ error: 'route, bus, driver, and departure_time are required' });
+  }
+  if (!conductorId) {
+    return res.status(400).json({ error: 'A conductor is required for scanner access' });
   }
   const departureAt = date ? new Date(`${date}T${String(departure_time).slice(0, 5)}:00`) : new Date(departure_time);
   const result = await pool.query(
     `INSERT INTO trips (schedule_id, bus_id, driver_id, conductor_id, departure_time, available_seats, status)
      SELECT $1, $2, $3, $4, $5, capacity, 'scheduled'
      FROM buses WHERE bus_id = $2 AND company_id = $6
+       AND EXISTS (
+         SELECT 1 FROM conductors WHERE conductor_id = $4 AND company_id = $6 AND is_active = TRUE
+       )
      RETURNING trip_id, schedule_id, bus_id, driver_id, conductor_id, departure_time, available_seats, status`,
     [scheduleId, busId, driverId, conductorId, departureAt.toISOString(), companyIdFrom(req)]
   );
@@ -233,8 +248,30 @@ async function deleteSchedule(req, res) {
 
 async function listStaff(req, res) {
   const result = await pool.query(
-    `SELECT driver_id, company_id, full_name, email, phone_number, license_number, is_active, created_at
-     FROM drivers WHERE company_id = $1 ORDER BY full_name`,
+    `SELECT driver_id AS staff_id,
+            'driver' AS staff_role,
+            company_id,
+            full_name,
+            email,
+            phone_number,
+            license_number AS badge_or_license,
+            is_active,
+            created_at
+     FROM drivers
+     WHERE company_id = $1
+     UNION ALL
+     SELECT conductor_id AS staff_id,
+            'conductor' AS staff_role,
+            company_id,
+            full_name,
+            email,
+            phone_number,
+            badge_number AS badge_or_license,
+            is_active,
+            created_at
+     FROM conductors
+     WHERE company_id = $1
+     ORDER BY full_name`,
     [companyIdFrom(req)]
   );
   return res.json({ staff: result.rows });
@@ -244,31 +281,50 @@ async function createStaff(req, res) {
   const { name, full_name, email, phone_number, role, license_number, password } = req.body ?? {};
   const staffName = String(name || full_name || '').trim();
   if (!staffName) return res.status(400).json({ error: 'Staff name is required' });
-  const license = String(license_number || `${role || 'STAFF'}-${Date.now()}`).trim().toUpperCase();
-  const result = await pool.query(
-    `INSERT INTO drivers (company_id, full_name, email, phone_number, license_number)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING driver_id, company_id, full_name, email, phone_number, license_number, is_active, created_at`,
-    [companyIdFrom(req), staffName, email ? String(email).trim().toLowerCase() : null, phone_number || null, license]
-  );
+  const staffRole = String(role || 'driver').trim().toLowerCase() === 'conductor'
+    ? 'conductor'
+    : 'driver';
+  const badgeOrLicense = String(license_number || `${staffRole.toUpperCase()}-${Date.now()}`).trim().toUpperCase();
+  const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+
+  const result = staffRole === 'conductor'
+    ? await pool.query(
+        `INSERT INTO conductors (company_id, full_name, email, phone_number, badge_number)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING conductor_id AS staff_id, company_id, full_name, email, phone_number, badge_number AS badge_or_license, is_active, created_at`,
+        [companyIdFrom(req), staffName, normalizedEmail, phone_number || null, badgeOrLicense]
+      )
+    : await pool.query(
+        `INSERT INTO drivers (company_id, full_name, email, phone_number, license_number)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING driver_id AS staff_id, company_id, full_name, email, phone_number, license_number AS badge_or_license, is_active, created_at`,
+        [companyIdFrom(req), staffName, normalizedEmail, phone_number || null, badgeOrLicense]
+      );
+
   if (email && password) {
     const passwordHash = await bcrypt.hash(String(password), 10);
     await pool.query(
       `INSERT INTO users (name, email, password_hash, role_id, company_id)
-       VALUES ($1, $2, $3, 4, $4)
-       ON CONFLICT (email) DO UPDATE SET role_id = 4, company_id = EXCLUDED.company_id`,
-      [staffName, String(email).trim().toLowerCase(), passwordHash, companyIdFrom(req)]
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (email) DO UPDATE SET role_id = EXCLUDED.role_id, company_id = EXCLUDED.company_id`,
+      [staffName, normalizedEmail, passwordHash, staffRole === 'conductor' ? 5 : 4, companyIdFrom(req)]
     );
   }
-  return res.status(201).json({ staff: result.rows[0] });
+  return res.status(201).json({ staff: { ...result.rows[0], staff_role: staffRole } });
 }
 
 async function deleteStaff(req, res) {
-  const result = await pool.query(
+  const driverResult = await pool.query(
     `UPDATE drivers SET is_active = FALSE WHERE driver_id = $1 AND company_id = $2 RETURNING driver_id`,
     [req.params.id, companyIdFrom(req)]
   );
-  if (result.rowCount === 0) return res.status(404).json({ error: 'Staff member not found' });
+  if (driverResult.rowCount === 0) {
+    const conductorResult = await pool.query(
+      `UPDATE conductors SET is_active = FALSE WHERE conductor_id = $1 AND company_id = $2 RETURNING conductor_id`,
+      [req.params.id, companyIdFrom(req)]
+    );
+    if (conductorResult.rowCount === 0) return res.status(404).json({ error: 'Staff member not found' });
+  }
   return res.json({ message: 'Staff member removed' });
 }
 

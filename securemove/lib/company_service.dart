@@ -319,6 +319,22 @@ class CompanyService {
         .toList();
   }
 
+  Future<CompanyTicket> verifyTicket(String code) async {
+    final token = await _requireToken();
+    final response = await _post(
+      '/drivers/tickets/verify',
+      token: token,
+      featureName: 'Ticket validation',
+      body: {'code': code},
+    );
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final ticket = body['ticket'];
+    if (ticket is! Map<String, dynamic>) {
+      throw const AuthException('The backend did not return the verified ticket.');
+    }
+    return CompanyTicket.fromJson(ticket);
+  }
+
   Future<String> _requireToken() async {
     final token = await AuthService.instance.getToken();
     if (token == null || token.isEmpty) {

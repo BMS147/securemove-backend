@@ -19,6 +19,14 @@ const drivers = [
   driver('UBZ', 'Daniel Zulu', 'daniel.zulu@securemove.dev', '0977000005', 'UBZ-DRV-001'),
 ];
 
+const conductors = [
+  conductor('Power Tools', 'Officer Banda', 'officer.banda@securemove.dev', '0977100001', 'PT-CON-001'),
+  conductor('Likili Motorways', 'Officer Mwansa', 'officer.mwansa@securemove.dev', '0977100002', 'LM-CON-001'),
+  conductor('Mazhandu Family Bus', 'Officer Chirwa', 'officer.chirwa@securemove.dev', '0977100003', 'MF-CON-001'),
+  conductor('Shalom', 'Officer Tembo', 'officer.tembo@securemove.dev', '0977100004', 'SH-CON-001'),
+  conductor('UBZ', 'Officer Zulu', 'officer.zulu@securemove.dev', '0977100005', 'UBZ-CON-001'),
+];
+
 const buses = [
   bus('Power Tools', 'BAT 1200', 52, ['Express', 'Wi-Fi', 'USB']),
   bus('Likili Motorways', 'BLM 2401', 49, ['Comfort', 'USB', 'AC']),
@@ -32,7 +40,7 @@ const bidirectionalRoutes = [
     from: 'Lusaka',
     to: 'Kabwe',
     outbound: [
-      route('Power Tools', '06:30 AM', 'K240', 120, ['Express', 'Wi-Fi', 'USB']),
+      route('Power Tools', '06:30 AM', 'K1', 120, ['Express', 'Wi-Fi', 'USB']),
       route('Mazhandu Family Bus', '09:00 AM', 'K255', 130, ['AC', 'Comfort', 'Luggage']),
       route('Shalom', '02:00 PM', 'K260', 140, ['Window seats', 'Popular', 'On time']),
     ],
@@ -208,16 +216,21 @@ async function seedBaseData() {
     await upsertDriver(companyIds, item);
   }
 
+  for (const item of conductors) {
+    await upsertConductor(companyIds, item);
+  }
+
   for (const item of buses) {
     await upsertBus(companyIds, item);
   }
 
   const driverMap = await buildDriverMap(companyIds);
+  const conductorMap = await buildConductorMap(companyIds);
   const busMap = await buildBusMap(companyIds);
 
   for (const corridor of bidirectionalRoutes) {
     for (const schedule of corridor.outbound) {
-      await insertSchedule(companyIds, driverMap, busMap, {
+      await insertSchedule(companyIds, driverMap, conductorMap, busMap, {
         ...schedule,
         origin: corridor.from,
         destination: corridor.to,
@@ -225,7 +238,7 @@ async function seedBaseData() {
     }
 
     for (const schedule of corridor.inbound) {
-      await insertSchedule(companyIds, driverMap, busMap, {
+      await insertSchedule(companyIds, driverMap, conductorMap, busMap, {
         ...schedule,
         origin: corridor.to,
         destination: corridor.from,
@@ -240,6 +253,10 @@ function route(companyName, departureTime, price, durationMinutes, features) {
 
 function driver(companyName, fullName, email, phoneNumber, licenseNumber) {
   return { companyName, fullName, email, phoneNumber, licenseNumber };
+}
+
+function conductor(companyName, fullName, email, phoneNumber, badgeNumber) {
+  return { companyName, fullName, email, phoneNumber, badgeNumber };
 }
 
 function bus(companyName, registrationNumber, capacity, features) {
@@ -262,6 +279,25 @@ async function upsertDriver(companyIds, item) {
          company_id = EXCLUDED.company_id,
          is_active = TRUE`,
     [companyId, item.fullName, item.email, item.phoneNumber, item.licenseNumber]
+  );
+}
+
+async function upsertConductor(companyIds, item) {
+  const companyId = companyIds[item.companyName];
+  if (!companyId) {
+    throw new Error(`Company not found for conductor seed: ${item.companyName}`);
+  }
+
+  await pool.query(
+    `INSERT INTO conductors (company_id, full_name, email, phone_number, badge_number)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (badge_number) DO UPDATE
+     SET full_name = EXCLUDED.full_name,
+         email = EXCLUDED.email,
+         phone_number = EXCLUDED.phone_number,
+         company_id = EXCLUDED.company_id,
+         is_active = TRUE`,
+    [companyId, item.fullName, item.email, item.phoneNumber, item.badgeNumber]
   );
 }
 
@@ -302,6 +338,25 @@ async function buildDriverMap(companyIds) {
   return Object.fromEntries(entries);
 }
 
+async function buildConductorMap(companyIds) {
+  const entries = await Promise.all(
+    Object.entries(companyIds).map(async ([companyName, companyId]) => {
+      const result = await pool.query(
+        `SELECT conductor_id
+         FROM conductors
+         WHERE company_id = $1 AND is_active = TRUE
+         ORDER BY conductor_id ASC
+         LIMIT 1`,
+        [companyId]
+      );
+
+      return [companyName, result.rows[0]?.conductor_id ?? null];
+    })
+  );
+
+  return Object.fromEntries(entries);
+}
+
 async function buildBusMap(companyIds) {
   const entries = await Promise.all(
     Object.entries(companyIds).map(async ([companyName, companyId]) => {
@@ -321,7 +376,7 @@ async function buildBusMap(companyIds) {
   return Object.fromEntries(entries);
 }
 
-async function insertSchedule(companyIds, driverMap, busMap, schedule) {
+async function insertSchedule(companyIds, driverMap, conductorMap, busMap, schedule) {
   const companyId = companyIds[schedule.companyName];
   if (!companyId) {
     throw new Error(`Company not found for route seed: ${schedule.companyName}`);
@@ -358,9 +413,10 @@ async function insertSchedule(companyIds, driverMap, busMap, schedule) {
 
   const scheduleId = scheduleResult.rows[0].schedule_id;
   const driverId = driverMap[schedule.companyName];
+  const conductorId = conductorMap[schedule.companyName];
   const busData = busMap[schedule.companyName];
 
-  if (!driverId || !busData?.bus_id) {
+  if (!driverId || !conductorId || !busData?.bus_id) {
     return;
   }
 
@@ -372,24 +428,27 @@ async function insertSchedule(companyIds, driverMap, busMap, schedule) {
       schedule_id,
       bus_id,
       driver_id,
+      conductor_id,
       departure_time,
       arrival_time,
       available_seats,
       status
     )
-    SELECT $1, $2, $3, $4, $5, $6, 'scheduled'
+    SELECT $1, $2, $3, $4, $5, $6, $7, 'scheduled'
     WHERE NOT EXISTS (
       SELECT 1
       FROM trips
       WHERE schedule_id = $1
         AND bus_id = $2
         AND driver_id = $3
-        AND departure_time = $4
+        AND conductor_id = $4
+        AND departure_time = $5
     )`,
     [
       scheduleId,
       busData.bus_id,
       driverId,
+      conductorId,
       departureAt.toISOString(),
       arrivalAt.toISOString(),
       busData.capacity,

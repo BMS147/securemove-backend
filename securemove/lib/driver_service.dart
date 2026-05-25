@@ -1,4 +1,9 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 import 'auth_service.dart';
+import 'backend_config.dart';
 import 'driver.dart';
 import 'services/api_service.dart';
 
@@ -6,63 +11,85 @@ class DriverService {
   DriverService._();
 
   static final DriverService instance = DriverService._();
-
   final ApiService _api = ApiService.instance;
 
   Future<DriverProfile> getCurrentDriver() async {
-    final body = await _safeGet('/drivers/me');
+    final body = await _safeGet('/driver/me');
     final driver = body['driver'];
     if (driver is! Map<String, dynamic>) {
       throw const AuthException('The backend did not return driver details.');
     }
-
     return DriverProfile.fromJson(driver);
   }
 
-  Future<List<DriverTrip>> getMyTrips() async {
-    final body = await _safeGet('/drivers/me/trips');
+  Future<DriverProfile> updateProfile({
+    required String fullName,
+    required String phone,
+  }) async {
+    final body = await _safePut('/driver/profile', {
+      'fullName': fullName,
+      'phone': phone,
+    });
+    final driver = body['driver'];
+    if (driver is! Map<String, dynamic>) {
+      throw const AuthException('The backend did not return updated profile details.');
+    }
+    return DriverProfile.fromJson(driver);
+  }
+
+  Future<DriverProfile> uploadProfilePhoto(String path) async {
+    final token = await AuthService.instance.getToken();
+    if (token == null || token.isEmpty) {
+      throw const AuthException('Please log in again to continue.');
+    }
+    final request = http.MultipartRequest(
+      'PUT',
+      Uri.parse('${BackendConfig.authBaseUrl}/driver/profile/photo'),
+    );
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath('photo', path));
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthException(
+        decoded is Map<String, dynamic> && decoded['error'] is String
+            ? decoded['error'] as String
+            : 'Unable to upload profile photo.',
+      );
+    }
+    final driver = decoded is Map<String, dynamic> ? decoded['driver'] : null;
+    if (driver is! Map<String, dynamic>) {
+      throw const AuthException('The backend did not return updated profile details.');
+    }
+    return DriverProfile.fromJson(driver);
+  }
+
+  Future<List<DriverTrip>> getTrips({String status = 'upcoming'}) async {
+    final body = await _safeGet('/driver/trips?status=$status');
     final trips = body['trips'];
-    if (trips is! List) {
-      return const [];
-    }
+    if (trips is! List) return const [];
+    return trips.whereType<Map<String, dynamic>>().map(DriverTrip.fromJson).toList();
+  }
 
-    return trips
+  Future<DriverTrip> getTripDetail(int tripId) async {
+    final body = await _safeGet('/driver/trips/$tripId');
+    final trip = body['trip'];
+    if (trip is! Map<String, dynamic>) {
+      throw const AuthException('The backend did not return trip details.');
+    }
+    return DriverTrip.fromJson(trip);
+  }
+
+  Future<List<DriverNotification>> getNotifications() async {
+    final body = await _safeGet('/driver/notifications');
+    final notifications = body['notifications'];
+    if (notifications is! List) return const [];
+    return notifications
         .whereType<Map<String, dynamic>>()
-        .map(DriverTrip.fromJson)
+        .map(DriverNotification.fromJson)
         .toList();
-  }
-
-  Future<List<DriverTicket>> getTripTickets(int tripId) async {
-    final body = await _safeGet('/drivers/trips/$tripId/tickets');
-    final tickets = body['tickets'];
-    if (tickets is! List) {
-      return const [];
-    }
-
-    return tickets
-        .whereType<Map<String, dynamic>>()
-        .map(DriverTicket.fromJson)
-        .toList();
-  }
-
-  Future<DriverTicket> verifyTicket(String code) async {
-    final body = await _safePost('/drivers/tickets/verify', {'code': code.trim()});
-    final ticket = body['ticket'];
-    if (ticket is! Map<String, dynamic>) {
-      throw const AuthException('The backend did not return the verified ticket.');
-    }
-
-    return DriverTicket.fromJson(ticket);
-  }
-
-  Future<DriverProfile> getDriverById(int driverId) async {
-    final body = await _safeGet('/drivers/$driverId');
-    final driver = body['driver'];
-    if (driver is! Map<String, dynamic>) {
-      throw const AuthException('The backend did not return driver details.');
-    }
-
-    return DriverProfile.fromJson(driver);
   }
 
   Future<Map<String, dynamic>> _safeGet(String path) async {
@@ -73,12 +100,12 @@ class DriverService {
     }
   }
 
-  Future<Map<String, dynamic>> _safePost(
+  Future<Map<String, dynamic>> _safePut(
     String path,
     Map<String, dynamic> body,
   ) async {
     try {
-      return await _api.post(path, body);
+      return await _api.put(path, body);
     } on ApiException catch (error) {
       throw AuthException(_friendlyError(error.message));
     }
@@ -89,7 +116,7 @@ class DriverService {
     if (lower.contains('invalid error response') ||
         lower.contains('route is unavailable') ||
         lower.contains('cannot get')) {
-      return 'Driver workspace is unavailable. Restart or redeploy the backend, then tap Retry.';
+      return 'Driver workspace is unavailable. Restart the backend, then tap Retry.';
     }
     return message;
   }
@@ -99,98 +126,95 @@ class DriverTrip {
   const DriverTrip({
     required this.tripId,
     required this.status,
-    required this.bookingCount,
-    required this.ticketCount,
-    required this.usedTicketCount,
+    required this.statusLabel,
+    required this.boardedCount,
+    required this.passengerCount,
     this.departureTime,
     this.arrivalTime,
-    this.availableSeats,
     this.origin,
     this.destination,
-    this.companyName,
     this.registrationNumber,
     this.capacity,
+    this.busType,
+    this.conductorName,
+    this.conductorBadge,
+    this.stops = const [],
   });
 
   factory DriverTrip.fromJson(Map<String, dynamic> json) {
     return DriverTrip(
       tripId: json['trip_id'] as int? ?? 0,
       status: (json['status'] as String?) ?? 'scheduled',
+      statusLabel: (json['status_label'] as String?) ?? 'UPCOMING',
       departureTime: json['departure_time'] is String
           ? DateTime.tryParse(json['departure_time'] as String)?.toLocal()
           : null,
       arrivalTime: json['arrival_time'] is String
           ? DateTime.tryParse(json['arrival_time'] as String)?.toLocal()
           : null,
-      availableSeats: json['available_seats'] as int?,
       origin: json['origin'] as String?,
       destination: json['destination'] as String?,
-      companyName: json['company_name'] as String?,
       registrationNumber: json['registration_number'] as String?,
       capacity: json['capacity'] as int?,
-      bookingCount: json['booking_count'] as int? ?? 0,
-      ticketCount: json['ticket_count'] as int? ?? 0,
-      usedTicketCount: json['used_ticket_count'] as int? ?? 0,
+      busType: json['bus_type'] as String?,
+      conductorName: json['conductor_name'] as String?,
+      conductorBadge: json['conductor_badge'] as String?,
+      boardedCount: json['boarded_count'] as int? ?? 0,
+      passengerCount: json['passenger_count'] as int? ?? 0,
+      stops: json['stops'] is List
+          ? (json['stops'] as List).whereType<String>().toList()
+          : const [],
     );
   }
 
   final int tripId;
   final String status;
+  final String statusLabel;
   final DateTime? departureTime;
   final DateTime? arrivalTime;
-  final int? availableSeats;
   final String? origin;
   final String? destination;
-  final String? companyName;
   final String? registrationNumber;
   final int? capacity;
-  final int bookingCount;
-  final int ticketCount;
-  final int usedTicketCount;
+  final String? busType;
+  final String? conductorName;
+  final String? conductorBadge;
+  final int boardedCount;
+  final int passengerCount;
+  final List<String> stops;
 
   String get routeLabel => '${origin ?? 'Origin'} to ${destination ?? 'Destination'}';
 }
 
-class DriverTicket {
-  const DriverTicket({
-    required this.ticketId,
-    required this.bookingId,
-    required this.passengerName,
-    required this.seatNumber,
-    required this.ticketNumber,
-    required this.status,
-    this.bookingReference,
-    this.verifiedAt,
+class DriverNotification {
+  const DriverNotification({
+    required this.id,
+    required this.title,
+    required this.message,
+    required this.kind,
     this.createdAt,
+    this.readAt,
   });
 
-  factory DriverTicket.fromJson(Map<String, dynamic> json) {
-    return DriverTicket(
-      ticketId: json['ticket_id'] as int? ?? 0,
-      bookingId: json['booking_id'] as int? ?? 0,
-      passengerName: (json['passenger_name'] as String?) ?? 'Passenger',
-      seatNumber: (json['seat_number'] as String?) ?? 'Seat',
-      ticketNumber: (json['ticket_number'] as String?) ?? 'Ticket',
-      status: (json['status'] as String?) ?? 'unknown',
-      bookingReference: json['booking_reference'] as String?,
-      verifiedAt: json['verified_at'] is String
-          ? DateTime.tryParse(json['verified_at'] as String)?.toLocal()
-          : null,
+  factory DriverNotification.fromJson(Map<String, dynamic> json) {
+    return DriverNotification(
+      id: json['notification_id'] as int? ?? 0,
+      title: (json['title'] as String?) ?? 'Notification',
+      message: (json['message'] as String?) ?? '',
+      kind: (json['kind'] as String?) ?? 'info',
       createdAt: json['created_at'] is String
           ? DateTime.tryParse(json['created_at'] as String)?.toLocal()
+          : null,
+      readAt: json['read_at'] is String
+          ? DateTime.tryParse(json['read_at'] as String)?.toLocal()
           : null,
     );
   }
 
-  final int ticketId;
-  final int bookingId;
-  final String passengerName;
-  final String seatNumber;
-  final String ticketNumber;
-  final String status;
-  final String? bookingReference;
-  final DateTime? verifiedAt;
+  final int id;
+  final String title;
+  final String message;
+  final String kind;
   final DateTime? createdAt;
-
-  bool get isUsed => status == 'used';
+  final DateTime? readAt;
 }

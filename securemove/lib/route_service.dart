@@ -54,10 +54,42 @@ class RouteService {
       return const [];
     }
 
-    return routes
+    final buses = routes
         .whereType<Map<String, dynamic>>()
         .map(Bus.fromJson)
         .toList();
+    return _deduplicateBuses(buses);
+  }
+
+  List<Bus> _deduplicateBuses(List<Bus> buses) {
+    final seen = <String>{};
+    final unique = <Bus>[];
+
+    for (final bus in buses) {
+      final key = _busKey(bus);
+      if (seen.add(key)) {
+        unique.add(bus);
+      }
+    }
+
+    return unique;
+  }
+
+  String _busKey(Bus bus) {
+    return [
+      bus.company,
+      bus.origin,
+      bus.destination,
+      bus.time,
+      bus.price,
+      bus.durationMinutes.toString(),
+      bus.effectiveSeatsLeft.toString(),
+      bus.registrationNumber ?? '',
+      bus.driverName ?? '',
+      bus.driverPhone ?? '',
+      bus.driverLicenseNumber ?? '',
+      ...bus.features,
+    ].map((value) => value.trim().toLowerCase()).join('|');
   }
 
   String _extractErrorMessage(http.Response response) {

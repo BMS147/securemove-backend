@@ -27,14 +27,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Map<String, dynamic> _stats = const {};
   List<Map<String, dynamic>> _companies = const [];
   List<Map<String, dynamic>> _users = const [];
+  List<Map<String, dynamic>> _recentUsers = const [];
+  List<Map<String, dynamic>> _recentBookings = const [];
   List<Map<String, dynamic>> _transactions = const [];
   List<Map<String, dynamic>> _logs = const [];
   String _roleFilter = 'all';
+  final TextEditingController _userSearchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _userSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -43,9 +52,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _error = null;
     });
     try {
-      final usersPath = _roleFilter == 'all'
-          ? '/admin/users'
-          : '/admin/users?role=$_roleFilter';
+      final search = Uri.encodeQueryComponent(_userSearchController.text.trim());
+      final usersPath = '/admin/users?role=$_roleFilter&page=1&limit=20'
+          '${search.isEmpty ? '' : '&search=$search'}';
       final results = await Future.wait([
         _api.get('/admin/dashboard'),
         _api.get('/admin/companies'),
@@ -56,6 +65,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       if (!mounted) return;
       setState(() {
         _stats = results[0]['stats'] as Map<String, dynamic>? ?? const {};
+        _recentUsers = _list(results[0]['recentUsers']);
+        _recentBookings = _list(results[0]['recentBookings']);
         _companies = _list(results[1]['companies']);
         _users = _list(results[2]['users']);
         _transactions = _list(results[3]['transactions']);
@@ -201,10 +212,27 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
       KpiCard(
         label: 'System revenue',
-        value: 'ZMW ${_stats['revenue'] ?? 0}',
+        value: 'ZMW ${_money(_stats['systemRevenue'])}',
         icon: Icons.payments_outlined,
         accentBg: AppColors.dangerLight,
         accentFg: AppColors.dangerText,
+      ),
+      KpiCard(
+        label: 'Drivers',
+        value: '${_stats['totalDrivers'] ?? 0}',
+        icon: Icons.drive_eta_outlined,
+      ),
+      KpiCard(
+        label: 'Conductors',
+        value: '${_stats['totalConductors'] ?? 0}',
+        icon: Icons.qr_code_scanner_rounded,
+      ),
+      KpiCard(
+        label: 'Pending approvals',
+        value: '${_stats['pendingCompanies'] ?? 0}',
+        icon: Icons.hourglass_top_rounded,
+        accentBg: AppColors.warningTint,
+        accentFg: AppColors.warningText,
       ),
     ];
 
@@ -230,8 +258,38 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           },
         ),
         const SizedBox(height: 22),
+        _recentActivityView(),
+        const SizedBox(height: 6),
         _companiesView(compact: true),
       ],
+    );
+  }
+
+  Widget _recentActivityView() {
+    return _Panel(
+      title: 'Recent activity',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_recentUsers.isEmpty && _recentBookings.isEmpty)
+            _emptyText('No recent activity yet.'),
+          ..._recentUsers.take(5).map((user) => _PanelRow(
+                icon: Icons.person_add_alt_rounded,
+                iconColor: AppColors.brandPrimary,
+                iconBg: AppColors.brandTint,
+                title: '${user['name'] ?? user['email'] ?? 'User'}',
+                subtitle: '${user['role'] ?? 'user'} joined ${_date(user['created_at'])}',
+              )),
+          ..._recentBookings.take(5).map((booking) => _PanelRow(
+                icon: Icons.confirmation_number_outlined,
+                iconColor: AppColors.successText,
+                iconBg: AppColors.successTint,
+                title: '${booking['booking_reference'] ?? 'Booking'}',
+                subtitle:
+                    '${booking['passenger_name'] ?? 'Passenger'} - ${booking['origin'] ?? 'Origin'} to ${booking['destination'] ?? 'Destination'}',
+              )),
+        ],
+      ),
     );
   }
 
@@ -255,7 +313,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       ? AppColors.successTint
                       : AppColors.warningTint,
                   title: '${company['name'] ?? 'Company'}',
-                  subtitle: 'Status: ${company['approval_status'] ?? 'pending'}',
+                  subtitle:
+                      '${company['owner_name'] ?? 'Owner pending'} - ${company['bus_count'] ?? 0} buses, ${company['route_count'] ?? 0} routes, ${company['driver_count'] ?? 0} drivers',
                   trailing: approved
                       ? const StatusPill(
                           label: 'Approved',
@@ -288,32 +347,51 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           _load();
         },
       ),
-      child: _users.isEmpty
-          ? _emptyText('No users match this filter.')
-          : Column(
-              children: _users.map((user) {
-                return _PanelRow(
-                  icon: Icons.person_outline_rounded,
-                  iconColor: AppColors.brandPrimary,
-                  iconBg: AppColors.brandTint,
-                  title: '${user['name'] ?? user['email']}',
-                  subtitle: '${user['email'] ?? ''}',
-                  trailing: DropdownButton<String>(
-                    value: (user['role'] as String?) ?? 'passenger',
-                    underline: const SizedBox.shrink(),
-                    items: const [
-                      DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
-                      DropdownMenuItem(value: 'company_admin', child: Text('Company')),
-                      DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
-                      DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
-                    ],
-                    onChanged: (role) => role == null
-                        ? null
-                        : _updateRole(user['user_id'], role),
-                  ),
-                );
-              }).toList(),
+      child: Column(
+        children: [
+          TextField(
+            controller: _userSearchController,
+            decoration: InputDecoration(
+              labelText: 'Search users',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: IconButton(
+                tooltip: 'Search',
+                onPressed: _load,
+                icon: const Icon(Icons.arrow_forward_rounded),
+              ),
             ),
+            onSubmitted: (_) => _load(),
+          ),
+          const SizedBox(height: 14),
+          _users.isEmpty
+              ? _emptyText('No users match this filter.')
+              : Column(
+                  children: _users.map((user) {
+                    return _PanelRow(
+                      icon: Icons.person_outline_rounded,
+                      iconColor: AppColors.brandPrimary,
+                      iconBg: AppColors.brandTint,
+                      title: '${user['name'] ?? user['email']}',
+                      subtitle: '${user['email'] ?? ''} - joined ${_date(user['created_at'])}',
+                      trailing: DropdownButton<String>(
+                        value: (user['role'] as String?) ?? 'passenger',
+                        underline: const SizedBox.shrink(),
+                        items: const [
+                          DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
+                          DropdownMenuItem(value: 'company_admin', child: Text('Company')),
+                          DropdownMenuItem(value: 'driver', child: Text('Driver')),
+                          DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
+                          DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
+                        ],
+                        onChanged: (role) => role == null
+                            ? null
+                            : _updateRole(user['user_id'], role),
+                      ),
+                    );
+                  }).toList(),
+                ),
+        ],
+      ),
     );
   }
 
@@ -426,6 +504,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ? DateFormat('d MMM HH:mm')
           .format(DateTime.tryParse(raw)?.toLocal() ?? DateTime.now())
       : 'No date';
+
+  String _money(dynamic raw) {
+    if (raw is num) return raw.toStringAsFixed(2);
+    if (raw is String) return (num.tryParse(raw) ?? 0).toStringAsFixed(2);
+    return '0.00';
+  }
 }
 
 // ===========================================================================
@@ -613,6 +697,7 @@ class _RoleFilterMenu extends StatelessWidget {
           DropdownMenuItem(value: 'all', child: Text('All')),
           DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
           DropdownMenuItem(value: 'company_admin', child: Text('Company')),
+          DropdownMenuItem(value: 'driver', child: Text('Driver')),
           DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
           DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
         ],

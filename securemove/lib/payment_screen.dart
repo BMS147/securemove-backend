@@ -681,7 +681,7 @@ class _BusSummaryCard extends StatelessWidget {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: Colors.white.withOpacity(0.18),
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: const Icon(
@@ -777,7 +777,7 @@ class _SummaryPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.16),
+        color: Colors.white.withOpacity(0.16),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(

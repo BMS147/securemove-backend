@@ -117,8 +117,13 @@ router.get('/me/trips', authenticateToken, async (req, res) => {
 });
 
 router.get('/trips/:tripId/tickets', authenticateToken, async (req, res) => {
-  if (!isDriver(req.user)) {
-    return res.status(403).json({ error: 'Driver access is required' });
+  if (isDriver(req.user)) {
+    return res.status(403).json({
+      error: 'Passenger ticket lists are conductor-only and are not available in the driver workspace',
+    });
+  }
+  if (!isSystemAdmin(req.user) && !isCompanyAdmin(req.user)) {
+    return res.status(403).json({ error: 'Company management access is required' });
   }
 
   const tripId = Number.parseInt(req.params.tripId, 10);
@@ -128,22 +133,19 @@ router.get('/trips/:tripId/tickets', authenticateToken, async (req, res) => {
   }
 
   try {
-    const driverResult = await pool.query(
-      'SELECT driver_id FROM drivers WHERE LOWER(email) = LOWER($1) LIMIT 1',
-      [req.user.email]
-    );
-
-    if (driverResult.rowCount === 0) {
-      return res.status(404).json({ error: 'No driver profile is linked to this login email' });
-    }
-
     const accessResult = await pool.query(
-      'SELECT trip_id FROM trips WHERE trip_id = $1 AND driver_id = $2',
-      [tripId, driverResult.rows[0].driver_id]
+      `SELECT tr.trip_id, rs.company_id
+       FROM trips tr
+       INNER JOIN route_schedules rs ON rs.schedule_id = tr.schedule_id
+       WHERE tr.trip_id = $1`,
+      [tripId]
     );
 
     if (accessResult.rowCount === 0) {
-      return res.status(403).json({ error: 'This trip is not assigned to the current driver' });
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+    if (!canManageCompany(req.user, accessResult.rows[0].company_id)) {
+      return res.status(403).json({ error: 'You can only view tickets for your assigned company' });
     }
 
     const result = await pool.query(
@@ -165,6 +167,12 @@ router.get('/trips/:tripId/tickets', authenticateToken, async (req, res) => {
 });
 
 router.post('/tickets/verify', authenticateToken, async (req, res) => {
+  if (isDriver(req.user)) {
+    return res.status(403).json({
+      error: 'Ticket verification is conductor-only and is not available in the driver workspace',
+    });
+  }
+
   const code = String(req.body?.code ?? '').trim();
 
   if (!code) {
@@ -172,16 +180,6 @@ router.post('/tickets/verify', authenticateToken, async (req, res) => {
   }
 
   try {
-    const driverResult = await pool.query(
-      'SELECT driver_id FROM drivers WHERE LOWER(email) = LOWER($1) LIMIT 1',
-      [req.user.email]
-    );
-
-    if (isDriver(req.user) && driverResult.rowCount === 0) {
-      return res.status(404).json({ error: 'No driver profile is linked to this login email' });
-    }
-
-    const driverId = driverResult.rows[0]?.driver_id ?? null;
     const ticketResult = await pool.query(
       `SELECT tk.ticket_id, tk.booking_id, tk.passenger_name, tk.seat_number, tk.ticket_number,
               tk.qr_code_hash, tk.status, tk.verified_at, tk.created_at,
@@ -203,12 +201,11 @@ router.post('/tickets/verify', authenticateToken, async (req, res) => {
     }
 
     const ticket = ticketResult.rows[0];
-    const canVerifyAsDriver = isDriver(req.user) && ticket.driver_id === driverId;
     const canVerifyAsManager = (isSystemAdmin(req.user) || isCompanyAdmin(req.user))
       && canManageCompany(req.user, ticket.company_id);
 
-    if (!canVerifyAsDriver && !canVerifyAsManager) {
-      return res.status(403).json({ error: 'This ticket belongs to another driver trip' });
+    if (!canVerifyAsManager) {
+      return res.status(403).json({ error: 'This ticket belongs to another company' });
     }
     if (ticket.status === 'used') {
       return res.status(409).json({ error: 'Ticket has already been verified' });
@@ -225,7 +222,7 @@ router.post('/tickets/verify', authenticateToken, async (req, res) => {
        WHERE ticket_id = $2
        RETURNING ticket_id, booking_id, passenger_name, seat_number, ticket_number,
                  qr_code_hash, status, verified_at, created_at`,
-      [driverId, ticket.ticket_id]
+      [null, ticket.ticket_id]
     );
 
     return res.json({

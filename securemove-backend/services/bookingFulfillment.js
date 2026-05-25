@@ -8,6 +8,7 @@
  */
 
 const pool = require('../db');
+const jwt = require('jsonwebtoken');
 
 /**
  * Mark a booking as paid and create its ticket if not already done.
@@ -51,6 +52,12 @@ async function ensureTicketExists(bookingId) {
   if (bookingResult.rowCount === 0) return;
 
   const booking = bookingResult.rows[0];
+  const ticketNumber = `SMT-${booking.booking_reference}`;
+  const qrPayload = buildTicketQrPayload({
+    ticketNumber,
+    bookingReference: booking.booking_reference,
+  });
+
   await pool.query(
     `INSERT INTO tickets (booking_id, passenger_name, seat_number, ticket_number, qr_code_hash, status)
      VALUES ($1, $2, 'AUTO-1', $3, $4, 'active')
@@ -58,9 +65,32 @@ async function ensureTicketExists(bookingId) {
     [
       booking.booking_id,
       booking.passenger_name || 'SecureMove Passenger',
-      `SMT-${booking.booking_reference}`,
-      booking.booking_reference,
+      ticketNumber,
+      qrPayload,
     ]
+  );
+}
+
+function buildTicketQrPayload({ ticketNumber, bookingReference }) {
+  const secret = process.env.TICKET_SECRET || process.env.TICKET_QR_SECRET;
+  if (!secret || secret.length < 64) {
+    throw new Error('TICKET_SECRET must be set and at least 64 characters long.');
+  }
+
+  return jwt.sign(
+    {
+      typ: 'securemove.ticket',
+      ticketNumber,
+      bookingReference,
+      nonce: `${ticketNumber}-${Date.now()}`,
+    },
+    secret,
+    {
+      algorithm: 'HS256',
+      issuer: 'securemove-api',
+      audience: 'securemove-conductor',
+      expiresIn: process.env.TICKET_QR_TTL || '36h',
+    }
   );
 }
 

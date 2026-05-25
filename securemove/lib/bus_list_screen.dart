@@ -45,6 +45,34 @@ class _BusListScreenState extends State<BusListScreen> {
   int _cents(String price) =>
       int.tryParse(price.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
 
+  List<Bus> _deduplicate(List<Bus> raw) {
+    final seen = <String>{};
+    final unique = <Bus>[];
+
+    for (final bus in raw) {
+      final key = [
+        bus.company,
+        bus.origin,
+        bus.destination,
+        bus.time,
+        bus.price,
+        bus.durationMinutes.toString(),
+        bus.effectiveSeatsLeft.toString(),
+        bus.registrationNumber ?? '',
+        bus.driverName ?? '',
+        bus.driverPhone ?? '',
+        bus.driverLicenseNumber ?? '',
+        ...bus.features,
+      ].map((value) => value.trim().toLowerCase()).join('|');
+
+      if (seen.add(key)) {
+        unique.add(bus);
+      }
+    }
+
+    return unique;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -94,7 +122,7 @@ class _BusListScreenState extends State<BusListScreen> {
             );
           }
 
-          final buses = _sorted(snapshot.data ?? const []);
+          final buses = _sorted(_deduplicate(snapshot.data ?? const []));
 
           // ── Empty ────────────────────────────────────────────────────────
           if (buses.isEmpty) {

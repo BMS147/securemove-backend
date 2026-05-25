@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import 'auth_service.dart';
+import 'backend_config.dart';
 import 'driver.dart';
 import 'driver_service.dart';
 import 'theme/app_colors.dart';
@@ -16,16 +18,17 @@ class DriverWorkspaceScreen extends StatefulWidget {
 }
 
 class _DriverWorkspaceScreenState extends State<DriverWorkspaceScreen> {
-  final DriverService _driverService = DriverService.instance;
-  final TextEditingController _codeController = TextEditingController();
-
+  final _service = DriverService.instance;
+  int _tab = 0;
+  bool _loading = true;
+  String? _error;
+  String? _tripsError;
+  String? _notificationsError;
   DriverProfile? _driver;
-  List<DriverTrip> _trips = const [];
-  DriverTrip? _selectedTrip;
-  List<DriverTicket> _tickets = const [];
-  bool _isLoading = true;
-  bool _isVerifying = false;
-  String? _errorMessage;
+  List<DriverTrip> _upcoming = const [];
+  List<DriverTrip> _completed = const [];
+  List<DriverTrip> _allTrips = const [];
+  List<DriverNotification> _notifications = const [];
 
   @override
   void initState() {
@@ -33,404 +36,648 @@ class _DriverWorkspaceScreenState extends State<DriverWorkspaceScreen> {
     _load();
   }
 
-  @override
-  void dispose() {
-    _codeController.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _loading = true;
+      _error = null;
+      _tripsError = null;
+      _notificationsError = null;
     });
 
     try {
-      final driver = await _driverService.getCurrentDriver();
-      final trips = await _driverService.getMyTrips();
-      final selectedTrip = trips.isEmpty ? null : trips.first;
-      final tickets = selectedTrip == null
-          ? const <DriverTicket>[]
-          : await _driverService.getTripTickets(selectedTrip.tripId);
+      final driver = await _service.getCurrentDriver();
+      if (!mounted) return;
+      setState(() => _driver = driver);
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    }
 
-      if (!mounted) {
-        return;
-      }
-
+    try {
+      final results = await Future.wait([
+        _service.getTrips(status: 'upcoming'),
+        _service.getTrips(status: 'completed'),
+        _service.getTrips(status: 'all'),
+      ]);
+      if (!mounted) return;
       setState(() {
-        _driver = driver;
-        _trips = trips;
-        _selectedTrip = selectedTrip;
-        _tickets = tickets;
+        _upcoming = results[0];
+        _completed = results[1];
+        _allTrips = results[2];
       });
     } on AuthException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _errorMessage = error.message);
+      if (mounted) setState(() => _tripsError = error.message);
+    }
+
+    try {
+      final notifications = await _service.getNotifications();
+      if (!mounted) return;
+      setState(() => _notifications = notifications);
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _notificationsError = error.message);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _selectTrip(DriverTrip trip) async {
-    setState(() {
-      _selectedTrip = trip;
-      _tickets = const [];
-      _errorMessage = null;
-    });
-
-    try {
-      final tickets = await _driverService.getTripTickets(trip.tripId);
-      if (!mounted) {
-        return;
-      }
-      setState(() => _tickets = tickets);
-    } on AuthException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _errorMessage = error.message);
-    }
-  }
-
-  Future<void> _verifyTicket() async {
-    final code = _codeController.text.trim();
-    if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a booking reference or ticket code.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isVerifying = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final ticket = await _driverService.verifyTicket(code);
-      _codeController.clear();
-
-      if (_selectedTrip != null) {
-        final tickets = await _driverService.getTripTickets(_selectedTrip!.tripId);
-        if (mounted) {
-          setState(() => _tickets = tickets);
-        }
-      }
-
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${ticket.passengerName} verified for boarding.')),
-      );
-    } on AuthException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() => _errorMessage = error.message);
-    } finally {
-      if (mounted) {
-        setState(() => _isVerifying = false);
-      }
-    }
+  Future<void> _logout() async {
+    await AuthService.instance.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        color: AppColors.background,
-        child: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.maybePop(context),
-                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                    ),
-                    const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'Driver workspace',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                if (_isLoading)
-                  const Column(
-                    children: [
-                      SkeletonCard(height: 128),
-                      SizedBox(height: 16),
-                      SkeletonCard(height: 150),
-                      SizedBox(height: 16),
-                      SkeletonCard(height: 180),
-                    ],
-                  )
-                else ...[
-                  _DriverHeader(driver: _driver),
-                  const SizedBox(height: 16),
-                  if (_errorMessage != null)
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Driver workspace'),
+        actions: [
+          IconButton(
+            tooltip: 'Log out',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout_rounded),
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (value) => setState(() => _tab = value),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          NavigationDestination(icon: Icon(Icons.route_rounded), label: 'My Trips'),
+          NavigationDestination(icon: Icon(Icons.notifications_rounded), label: 'Notifications'),
+        ],
+      ),
+      body: _loading
+          ? const _DriverSkeleton()
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                children: [
+                  if (_error != null)
                     ErrorBanner(
                       title: 'Driver workspace unavailable',
-                      message: _errorMessage!,
+                      message: _error!,
                       onRetry: _load,
                     ),
-                  _VerifyPanel(
-                    controller: _codeController,
-                    isVerifying: _isVerifying,
-                    onVerify: _verifyTicket,
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Assigned trips',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 12),
-                  if (_trips.isEmpty)
-                    const _EmptyPanel(
-                      icon: Icons.route_outlined,
-                      title: 'No trips assigned',
-                      subtitle: 'Trips assigned to the driver email will appear here.',
+                  if (_tab == 0)
+                    _DriverProfileView(
+                      driver: _driver,
+                      onChanged: (driver) => setState(() => _driver = driver),
+                    )
+                  else if (_tab == 1)
+                    _TripsView(
+                      upcoming: _upcoming,
+                      completed: _completed,
+                      allTrips: _allTrips,
+                      error: _tripsError,
+                      onRetry: _load,
+                      onOpen: _openTrip,
                     )
                   else
-                    ..._trips.map(
-                      (trip) => _TripCard(
-                        trip: trip,
-                        selected: trip.tripId == _selectedTrip?.tripId,
-                        onTap: () => _selectTrip(trip),
-                      ),
+                    _NotificationsView(
+                      notifications: _notifications,
+                      error: _notificationsError,
+                      onRetry: _load,
                     ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Passenger tickets',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 12),
-                  if (_selectedTrip == null)
-                    const _EmptyPanel(
-                      icon: Icons.confirmation_number_outlined,
-                      title: 'Choose a trip',
-                      subtitle: 'Select an assigned trip to see paid passenger tickets.',
-                    )
-                  else if (_tickets.isEmpty)
-                    const _EmptyPanel(
-                      icon: Icons.confirmation_number_outlined,
-                      title: 'No tickets yet',
-                      subtitle: 'Paid bookings for this trip will appear here.',
-                    )
-                  else
-                    ..._tickets.map((ticket) => _TicketTile(ticket: ticket)),
                 ],
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
+    );
+  }
+
+  Future<void> _openTrip(DriverTrip trip) async {
+    final detail = await _service.getTripDetail(trip.tripId);
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TripDetailSheet(trip: detail),
     );
   }
 }
 
-class _DriverHeader extends StatelessWidget {
-  const _DriverHeader({required this.driver});
+class _DriverProfileView extends StatefulWidget {
+  const _DriverProfileView({required this.driver, required this.onChanged});
 
   final DriverProfile? driver;
+  final ValueChanged<DriverProfile> onChanged;
+
+  @override
+  State<_DriverProfileView> createState() => _DriverProfileViewState();
+}
+
+class _DriverProfileViewState extends State<_DriverProfileView> {
+  final _service = DriverService.instance;
+  final _picker = ImagePicker();
+  bool _editing = false;
+  bool _saving = false;
+  bool _uploading = false;
+  late final TextEditingController _name;
+  late final TextEditingController _phone;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.driver?.fullName ?? '');
+    _phone = TextEditingController(text: widget.driver?.phoneNumber ?? '');
+  }
+
+  @override
+  void didUpdateWidget(covariant _DriverProfileView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_editing && oldWidget.driver != widget.driver) {
+      _name.text = widget.driver?.fullName ?? '';
+      _phone.text = widget.driver?.phoneNumber ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final updated = await _service.updateProfile(
+        fullName: _name.text.trim(),
+        phone: _phone.text.trim(),
+      );
+      widget.onChanged(updated);
+      if (mounted) setState(() => _editing = false);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _pickPhoto() async {
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 90,
+    );
+    if (picked == null) return;
+
+    setState(() => _uploading = true);
+    try {
+      final updated = await _service.uploadProfilePhoto(picked.path);
+      widget.onChanged(updated);
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.brandDeep, AppColors.brandVivid],
-        ),
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.16),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(Icons.badge_outlined, color: Colors.white),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  driver?.fullName ?? 'Driver profile',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
+    final driver = widget.driver;
+    final expiry = driver?.licenseExpiry;
+    final expiringSoon = expiry != null &&
+        expiry.difference(DateTime.now()).inDays <= 30 &&
+        expiry.isAfter(DateTime.now());
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Panel(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: _uploading ? null : _pickPhoto,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      alignment: Alignment.center,
+                      children: [
+                        CircleAvatar(
+                          radius: 46,
+                          backgroundColor: AppColors.brandTint,
+                          backgroundImage: _photoProvider(driver?.profilePhoto),
+                          child: driver?.profilePhoto == null
+                              ? const Icon(Icons.person_rounded, size: 42)
+                              : null,
+                        ),
+                        if (_uploading) const CircularProgressIndicator(),
+                        Positioned(
+                          right: -2,
+                          bottom: -2,
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: AppColors.brandPrimary,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: Colors.white, width: 3),
+                            ),
+                            child: const Icon(
+                              Icons.camera_alt_rounded,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${driver?.companyName ?? 'SecureMove'} • ${driver?.licenseNumber ?? 'License pending'}',
-                  style: const TextStyle(color: Color(0xE8FFFFFF)),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          driver?.fullName ?? 'Driver profile',
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          driver?.email ?? 'No email',
+                          style: const TextStyle(color: AppColors.textSecondary),
+                        ),
+                        const SizedBox(height: 10),
+                        _StatusChip(label: driver?.status ?? 'ACTIVE'),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: _uploading ? null : _pickPhoto,
+                          icon: const Icon(Icons.photo_camera_rounded, size: 18),
+                          label: const Text('Upload profile photo'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton.filledTonal(
+                    onPressed: () => setState(() => _editing = !_editing),
+                    icon: Icon(_editing ? Icons.close_rounded : Icons.edit_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _ProfileField(label: 'Full name', controller: _name, enabled: _editing),
+              _ProfileField(label: 'Phone number', controller: _phone, enabled: _editing),
+              _ReadOnlyRow(label: 'NRC number', value: driver?.nrcNumber ?? 'Pending admin approval'),
+              _ReadOnlyRow(label: 'License number', value: driver?.licenseNumber ?? 'Pending'),
+              _ReadOnlyRow(label: 'License class', value: driver?.licenseClass ?? 'Class C PSV'),
+              _ReadOnlyRow(
+                label: 'License expiry',
+                value: expiry == null ? 'Not set' : DateFormat('d MMM yyyy').format(expiry),
+                trailing: expiringSoon
+                    ? const _WarningBadge(label: 'Expiring soon')
+                    : null,
+              ),
+              if (_editing) ...[
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_rounded),
+                  label: const Text('Save changes'),
                 ),
               ],
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 14),
+        _StatsPanel(driver: driver),
+      ],
     );
+  }
+
+  ImageProvider? _photoProvider(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final url = raw.startsWith('http') ? raw : '${BackendConfig.authBaseUrl}$raw';
+    return NetworkImage(url);
   }
 }
 
-class _VerifyPanel extends StatelessWidget {
-  const _VerifyPanel({
-    required this.controller,
-    required this.isVerifying,
-    required this.onVerify,
+class _TripsView extends StatefulWidget {
+  const _TripsView({
+    required this.upcoming,
+    required this.completed,
+    required this.allTrips,
+    required this.error,
+    required this.onRetry,
+    required this.onOpen,
   });
 
-  final TextEditingController controller;
-  final bool isVerifying;
-  final VoidCallback onVerify;
+  final List<DriverTrip> upcoming;
+  final List<DriverTrip> completed;
+  final List<DriverTrip> allTrips;
+  final String? error;
+  final VoidCallback onRetry;
+  final ValueChanged<DriverTrip> onOpen;
+
+  @override
+  State<_TripsView> createState() => _TripsViewState();
+}
+
+class _TripsViewState extends State<_TripsView> {
+  int _segment = 0;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: _panelDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Verify boarding',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+    final trips = switch (_segment) {
+      1 => widget.completed,
+      2 => widget.allTrips,
+      _ => widget.upcoming,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 0, label: Text('Upcoming')),
+            ButtonSegment(value: 1, label: Text('Completed')),
+            ButtonSegment(value: 2, label: Text('All')),
+          ],
+          selected: {_segment},
+          onSelectionChanged: (value) => setState(() => _segment = value.first),
+        ),
+        const SizedBox(height: 14),
+        if (widget.error != null) ...[
+          ErrorBanner(
+            title: 'Trips unavailable',
+            message: widget.error!,
+            onRetry: widget.onRetry,
           ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            textCapitalization: TextCapitalization.characters,
-            decoration: const InputDecoration(
-              labelText: 'Booking reference or ticket code',
-              prefixIcon: Icon(Icons.qr_code_scanner_rounded),
-            ),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: isVerifying ? null : onVerify,
-            icon: isVerifying
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.verified_rounded),
-            label: const Text('Verify ticket'),
-          ),
+          const SizedBox(height: 14),
         ],
-      ),
+        if (trips.isEmpty)
+          const _EmptyPanel(
+            icon: Icons.route_outlined,
+            title: 'No trips here',
+            subtitle: 'Assigned trips will appear in this list.',
+          )
+        else
+          ...trips.map((trip) => _TripCard(trip: trip, onTap: () => widget.onOpen(trip))),
+      ],
     );
   }
 }
 
 class _TripCard extends StatelessWidget {
-  const _TripCard({
-    required this.trip,
-    required this.selected,
-    required this.onTap,
-  });
+  const _TripCard({required this.trip, required this.onTap});
 
   final DriverTrip trip;
-  final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final time = trip.departureTime == null
+    final departure = trip.departureTime == null
         ? 'Time pending'
-        : DateFormat('EEE, d MMM • HH:mm').format(trip.departureTime!);
+        : DateFormat('EEE, d MMM - HH:mm').format(trip.departureTime!);
 
-    return Container(
+    return _Panel(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: _panelDecoration(
-        border: selected ? AppColors.brandVivid : Colors.transparent,
-      ),
       child: ListTile(
         onTap: onTap,
+        contentPadding: EdgeInsets.zero,
         leading: const Icon(Icons.directions_bus_filled_rounded),
-        title: Text(
-          trip.routeLabel,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
+        title: Text(trip.routeLabel, style: const TextStyle(fontWeight: FontWeight.w900)),
         subtitle: Text(
-          '$time\n${trip.registrationNumber ?? 'Bus pending'} • ${trip.usedTicketCount}/${trip.ticketCount} boarded',
+          '$departure\n${trip.registrationNumber ?? 'Bus pending'} - ${trip.boardedCount}/${trip.passengerCount} boarded',
         ),
         isThreeLine: true,
-        trailing: Text(
-          trip.status,
-          style: const TextStyle(fontWeight: FontWeight.w700),
+        trailing: _StatusChip(label: trip.statusLabel),
+      ),
+    );
+  }
+}
+
+class _TripDetailSheet extends StatelessWidget {
+  const _TripDetailSheet({required this.trip});
+
+  final DriverTrip trip;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(trip.routeLabel, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 16),
+            _ReadOnlyRow(label: 'Bus', value: '${trip.registrationNumber ?? 'Pending'} - ${trip.busType ?? 'Coach'}'),
+            _ReadOnlyRow(label: 'Conductor', value: trip.conductorName ?? 'Not assigned'),
+            _ReadOnlyRow(
+              label: 'Departure',
+              value: trip.departureTime == null
+                  ? 'Pending'
+                  : DateFormat('EEE, d MMM yyyy HH:mm').format(trip.departureTime!),
+            ),
+            _ReadOnlyRow(
+              label: 'Arrival',
+              value: trip.arrivalTime == null
+                  ? 'Pending'
+                  : DateFormat('EEE, d MMM yyyy HH:mm').format(trip.arrivalTime!),
+            ),
+            _ReadOnlyRow(label: 'Passengers boarded', value: '${trip.boardedCount}/${trip.passengerCount}'),
+            _ReadOnlyRow(label: 'Stops/features', value: trip.stops.isEmpty ? 'None listed' : trip.stops.join(', ')),
+          ],
         ),
       ),
     );
   }
 }
 
-class _TicketTile extends StatelessWidget {
-  const _TicketTile({required this.ticket});
+class _NotificationsView extends StatelessWidget {
+  const _NotificationsView({
+    required this.notifications,
+    required this.error,
+    required this.onRetry,
+  });
 
-  final DriverTicket ticket;
+  final List<DriverNotification> notifications;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (error != null) {
+      return ErrorBanner(
+        title: 'Notifications unavailable',
+        message: error!,
+        onRetry: onRetry,
+      );
+    }
+    if (notifications.isEmpty) {
+      return const _EmptyPanel(
+        icon: Icons.notifications_none_rounded,
+        title: 'No notifications',
+        subtitle: 'Trip assignments, schedule changes, and admin messages will appear here.',
+      );
+    }
+    return Column(
+      children: notifications.map((item) {
+        return _Panel(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              item.kind == 'warning' ? Icons.warning_amber_rounded : Icons.notifications_rounded,
+              color: item.kind == 'warning' ? AppColors.warningText : AppColors.brandPrimary,
+            ),
+            title: Text(item.title, style: const TextStyle(fontWeight: FontWeight.w900)),
+            subtitle: Text('${item.message}\n${_date(item.createdAt)}'),
+            isThreeLine: true,
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _StatsPanel extends StatelessWidget {
+  const _StatsPanel({required this.driver});
+
+  final DriverProfile? driver;
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = driver?.stats ?? const {};
+    return _Panel(
+      child: Row(
+        children: [
+          _Stat(label: 'Trips', value: '${stats['totalTrips'] ?? 0}'),
+          _Stat(label: 'Distance', value: '${stats['totalDistanceKm'] ?? 0} km'),
+          _Stat(label: 'Member since', value: _date(_asDate(stats['memberSince']) ?? driver?.createdAt)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileField extends StatelessWidget {
+  const _ProfileField({
+    required this.label,
+    required this.controller,
+    required this.enabled,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        enabled: enabled,
+        decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+}
+
+class _ReadOnlyRow extends StatelessWidget {
+  const _ReadOnlyRow({required this.label, required this.value, this.trailing});
+
+  final String label;
+  final String value;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 126,
+            child: Text(label, style: const TextStyle(color: AppColors.textSecondary)),
+          ),
+          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w800))),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 4),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: _panelDecoration(),
-      child: ListTile(
-        leading: Icon(
-          ticket.isUsed ? Icons.check_circle_rounded : Icons.confirmation_number_outlined,
-          color: ticket.isUsed ? AppColors.successText : AppColors.brandPrimary,
-        ),
-        title: Text(
-          ticket.passengerName,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Text(
-          '${ticket.seatNumber} • ${ticket.bookingReference ?? ticket.ticketNumber}',
-        ),
-        trailing: Text(
-          ticket.status.toUpperCase(),
-          style: TextStyle(
-            color: ticket.isUsed ? AppColors.successText : AppColors.brandPrimary,
-            fontWeight: FontWeight.w800,
-          ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: label.toUpperCase().contains('SUSPENDED') ? AppColors.dangerLight : AppColors.successTint,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: label.toUpperCase().contains('SUSPENDED') ? AppColors.dangerText : AppColors.successText,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
         ),
       ),
+    );
+  }
+}
+
+class _WarningBadge extends StatelessWidget {
+  const _WarningBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.warningTint,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label, style: const TextStyle(color: AppColors.warningText, fontSize: 11, fontWeight: FontWeight.w800)),
     );
   }
 }
 
 class _EmptyPanel extends StatelessWidget {
-  const _EmptyPanel({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
+  const _EmptyPanel({required this.icon, required this.title, required this.subtitle});
 
   final IconData icon;
   final String title;
@@ -438,37 +685,69 @@ class _EmptyPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: _panelDecoration(),
+    return _Panel(
       child: Column(
         children: [
-          Icon(icon, size: 40, color: AppColors.brandPrimary),
+          Icon(icon, size: 42, color: AppColors.brandPrimary),
           const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
           const SizedBox(height: 8),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
-          ),
+          Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textSecondary)),
         ],
       ),
     );
   }
 }
 
-BoxDecoration _panelDecoration({Color border = Colors.transparent}) {
-  return BoxDecoration(
-    color: Colors.white,
-    borderRadius: BorderRadius.circular(24),
-    border: Border.all(color: border, width: border == Colors.transparent ? 0 : 1.5),
-    boxShadow: const [
-      BoxShadow(
-        color: Color(0x100F2554),
-        blurRadius: 24,
-        offset: Offset(0, 14),
+class _Panel extends StatelessWidget {
+  const _Panel({required this.child, this.margin});
+
+  final Widget child;
+  final EdgeInsetsGeometry? margin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin ?? const EdgeInsets.only(bottom: 0),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [
+          BoxShadow(color: Color(0x100F2554), blurRadius: 24, offset: Offset(0, 14)),
+        ],
       ),
-    ],
-  );
+      child: child,
+    );
+  }
+}
+
+class _DriverSkeleton extends StatelessWidget {
+  const _DriverSkeleton();
+
+  @override
+  Widget build(BuildContext context) => const SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            children: [
+              SkeletonCard(height: 160),
+              SizedBox(height: 14),
+              SkeletonCard(height: 240),
+            ],
+          ),
+        ),
+      );
+}
+
+DateTime? _asDate(dynamic value) {
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value)?.toLocal();
+  return null;
+}
+
+String _date(DateTime? value) {
+  if (value == null) return 'Not available';
+  return DateFormat('d MMM yyyy').format(value);
 }
