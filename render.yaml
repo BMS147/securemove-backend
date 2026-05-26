@@ -19,7 +19,17 @@ services:
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: MOBILE_MONEY_MODE
-        value: mock
+        value: lenco
+      - key: LENCO_PUBLIC_KEY
+        sync: false
+      - key: LENCO_SECRET_KEY
+        sync: false
+      - key: LENCO_BASE_URL
+        value: https://api.lenco.co
+      - key: LENCO_COUNTRY
+        value: zm
+      - key: LENCO_BEARER
+        value: merchant
       - key: AIRTEL_ENVIRONMENT_MODE
         value: staging
       - key: AIRTEL_COUNTRY
