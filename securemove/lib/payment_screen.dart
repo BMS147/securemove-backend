@@ -219,9 +219,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
       Navigator.of(context, rootNavigator: true).pop();
 
       if (settled.payment.isPending) {
-        throw const PaymentException(
-          'No confirmation received. Please check your phone for the approval prompt and try again.',
+        _showInfo(
+          'Payment request sent. Approve the prompt on your phone; your ticket will appear after confirmation.',
         );
+        return;
       }
       if (settled.payment.isFailed) {
         final reason = settled.message;
@@ -341,6 +342,22 @@ class _PaymentScreenState extends State<PaymentScreen> {
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
           label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+        ),
+      ),
+    );
+  }
+
+  void _showInfo(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.brandPrimary,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 8),
+        action: SnackBarAction(
+          label: 'OK',
           textColor: Colors.white,
           onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
         ),

@@ -297,7 +297,7 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
 
     const nextStatus = providerStatus.status;
 
-    // Only write to DB if status actually changed (avoid unnecessary updates)
+    // Only write to DB if status actually changed (avoid unnecessary updates).
     if (nextStatus !== payment.status) {
       await pool.query(
         `UPDATE payments
@@ -305,25 +305,28 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
          WHERE payment_id = $2`,
         [nextStatus, payment.payment_id]
       );
+    }
 
-      if (nextStatus === 'successful') {
-        try {
-          await fulfillPaidBooking(payment.booking_id, providerStatus.financialTransactionId || null);
-        } catch (fulfillErr) {
-          console.error(
-            `[Payment polling] Fulfillment failed for booking ${payment.booking_id}:`,
-            fulfillErr.message
-          );
-          await pool.query(
-            `INSERT INTO audit_logs (event_type, status, severity, details)
-             VALUES ('ticket_fulfillment_failed', 'failed', 'high', $1)`,
-            [JSON.stringify({
-              bookingId: payment.booking_id,
-              paymentId: payment.payment_id,
-              error: fulfillErr.message,
-            })]
-          ).catch(() => {});
-        }
+    // A payment may already be marked successful by the webhook before the app
+    // polls again. Always retry fulfillment for successful payments so a missed
+    // or previously failed ticket issue can recover on the next status check.
+    if (nextStatus === 'successful') {
+      try {
+        await fulfillPaidBooking(payment.booking_id, providerStatus.financialTransactionId || null);
+      } catch (fulfillErr) {
+        console.error(
+          `[Payment polling] Fulfillment failed for booking ${payment.booking_id}:`,
+          fulfillErr.message
+        );
+        await pool.query(
+          `INSERT INTO audit_logs (event_type, status, severity, details)
+           VALUES ('ticket_fulfillment_failed', 'failed', 'high', $1)`,
+          [JSON.stringify({
+            bookingId: payment.booking_id,
+            paymentId: payment.payment_id,
+            error: fulfillErr.message,
+          })]
+        ).catch(() => {});
       }
     }
 
