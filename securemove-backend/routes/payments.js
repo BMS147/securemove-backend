@@ -250,7 +250,7 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('Initiate mobile money payment error:', err.message);
-    return res.status(500).json({ error: err.message || 'Unable to initiate mobile money payment' });
+    return res.status(500).json({ error: toPublicPaymentError(err) });
   }
 });
 
@@ -352,7 +352,7 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
     return res.json(response);
   } catch (err) {
     console.error('Check payment status error:', err.message);
-    return res.status(500).json({ error: err.message || 'Unable to check payment status' });
+    return res.status(500).json({ error: toPublicPaymentError(err) });
   }
 });
 
@@ -367,6 +367,29 @@ function buildLencoReference(bookingId) {
 
 function getMobileMoneyMode() {
   return (process.env.MOBILE_MONEY_MODE || 'mock').trim().toLowerCase();
+}
+
+function toPublicPaymentError(err) {
+  const message = String(err?.message || '').toLowerCase();
+
+  if (message.includes('not configured')) {
+    return 'Mobile money is not ready yet. Please try again later or choose another payment method.';
+  }
+
+  if (
+    message.includes('insufficient') ||
+    message.includes('not enough funds') ||
+    message.includes('declined') ||
+    message.includes('limit')
+  ) {
+    return 'The mobile money provider declined this payment. Check your wallet balance or limit, then try again.';
+  }
+
+  if (message.includes('timeout') || message.includes('network') || message.includes('fetch failed')) {
+    return 'The mobile money provider did not respond in time. Please try again.';
+  }
+
+  return 'Mobile money payment could not be started. Please try again.';
 }
 
 module.exports = router;

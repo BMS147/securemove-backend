@@ -187,13 +187,13 @@ class MobileMoneyService {
             },
           )
           .timeout(const Duration(seconds: 15));
-    } on TimeoutException catch (error) {
+    } on TimeoutException {
       throw AuthException(
-        'Payment status timed out while contacting $_baseUrl.\nDetails: $error',
+        'Payment status is taking longer than expected. Please try again.',
       );
-    } on http.ClientException catch (error) {
+    } on http.ClientException {
       throw AuthException(
-        '${BackendConfig.buildConnectionHelp(featureName: 'Payment status', baseUrl: _baseUrl)}\nDetails: ${error.message}',
+        'Could not reach the payment server. Check your connection and try again.',
       );
     }
 
@@ -219,13 +219,13 @@ class MobileMoneyService {
             },
           )
           .timeout(const Duration(seconds: 10));
-    } on TimeoutException catch (error) {
+    } on TimeoutException {
       throw AuthException(
-        'Mobile money config timed out while contacting $_baseUrl.\nDetails: $error',
+        'Mobile money is taking longer than expected. Please try again.',
       );
-    } on http.ClientException catch (error) {
+    } on http.ClientException {
       throw AuthException(
-        '${BackendConfig.buildConnectionHelp(featureName: 'Mobile money config', baseUrl: _baseUrl)}\nDetails: ${error.message}',
+        'Could not reach the payment server. Check your connection and try again.',
       );
     }
 
@@ -272,13 +272,13 @@ class MobileMoneyService {
       }
 
       return response;
-    } on TimeoutException catch (error) {
+    } on TimeoutException {
       throw AuthException(
-        '$featureName timed out while contacting $_baseUrl.\nDetails: $error',
+        '$featureName is taking longer than expected. Please try again.',
       );
-    } on http.ClientException catch (error) {
+    } on http.ClientException {
       throw AuthException(
-        '${BackendConfig.buildConnectionHelp(featureName: featureName, baseUrl: _baseUrl)}\nDetails: ${error.message}',
+        'Could not reach the payment server. Check your connection and try again.',
       );
     }
   }
@@ -290,16 +290,40 @@ class MobileMoneyService {
         final error = body['error'];
         final message = body['message'];
         if (error is String && error.isNotEmpty) {
-          return error;
+          return _friendlyError(error);
         }
         if (message is String && message.isNotEmpty) {
-          return message;
+          return _friendlyError(message);
         }
       }
     } catch (_) {
-      return 'The server returned an invalid error response.';
+      return 'Payment is temporarily unavailable. Please try again.';
     }
 
-    return 'Payment request failed with status ${response.statusCode}.';
+    return 'Payment is temporarily unavailable. Please try again.';
+  }
+
+  String _friendlyError(String message) {
+    final lower = message.toLowerCase();
+
+    if (lower.contains('not configured')) {
+      return 'Mobile money is not ready yet. Please try another payment method.';
+    }
+    if (lower.contains('insufficient') ||
+        lower.contains('not enough funds') ||
+        lower.contains('declined') ||
+        lower.contains('limit')) {
+      return 'The provider declined this payment. Check your wallet balance or limit, then try again.';
+    }
+    if (lower.contains('lenco') ||
+        lower.contains('mtn') ||
+        lower.contains('airtel') ||
+        lower.contains('http') ||
+        lower.contains('exception') ||
+        lower.contains('errorcode')) {
+      return 'Mobile money payment could not be completed. Please try again.';
+    }
+
+    return message;
   }
 }

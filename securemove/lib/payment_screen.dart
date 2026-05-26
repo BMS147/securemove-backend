@@ -29,6 +29,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _isProcessingCard = false;
   bool _isProcessingMobile = false;
   String? _activeMobileMethod;
+  bool _processingDialogVisible = false;
 
   // ── Booking cache ──────────────────────────────────────────────────────────
   int? _activeBookingId;
@@ -325,7 +326,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   // ── UI helpers ─────────────────────────────────────────────────────────────
 
   void _closeDialogSafely() {
-    if (mounted) {
+    if (mounted && _processingDialogVisible) {
+      _processingDialogVisible = false;
       Navigator.of(context, rootNavigator: true).pop();
     }
   }
@@ -333,7 +335,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(_friendlyPaymentMessage(message)),
         backgroundColor: AppColors.danger,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 6),
@@ -344,6 +346,24 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
       ),
     );
+  }
+
+  String _friendlyPaymentMessage(String message) {
+    final lower = message.toLowerCase();
+
+    if (lower.contains('package:flutter') ||
+        lower.contains('failed assertion') ||
+        lower.contains('exception') ||
+        lower.contains('stack') ||
+        lower.contains('http')) {
+      return 'Payment could not be completed. Please try again.';
+    }
+
+    if (lower.contains('not configured')) {
+      return 'Mobile money is not ready yet. Please try another payment method.';
+    }
+
+    return message;
   }
 
   // ── Phone collection sheet ─────────────────────────────────────────────────
@@ -498,6 +518,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     required String phone,
     required VoidCallback onCancel,
   }) {
+    _processingDialogVisible = true;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -555,6 +576,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 TextButton.icon(
                   onPressed: () {
                     onCancel();
+                    _processingDialogVisible = false;
                     Navigator.of(dialogCtx).pop();
                   },
                   icon: const Icon(Icons.close_rounded, size: 18),
@@ -572,7 +594,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      _processingDialogVisible = false;
+    });
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────

@@ -96,10 +96,10 @@ class _FallbackErrorView extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    details.exceptionAsString(),
+                  const Text(
+                    'The app hit an unexpected problem. Please go back and try again.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Color(0xFF5E6C87),
                       height: 1.4,
                     ),
