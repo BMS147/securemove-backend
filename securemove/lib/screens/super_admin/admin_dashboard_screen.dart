@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -33,7 +35,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<Map<String, dynamic>> _logs = const [];
   String _roleFilter = 'all';
   bool _generatingReport = false;
+  bool _usersLoading = false;
   Map<String, dynamic>? _latestReport;
+  Timer? _userSearchDebounce;
   final TextEditingController _userSearchController = TextEditingController();
 
   @override
@@ -44,8 +48,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   void dispose() {
+    _userSearchDebounce?.cancel();
     _userSearchController.dispose();
     super.dispose();
+  }
+
+  String _usersPath() {
+    final search = Uri.encodeQueryComponent(_userSearchController.text.trim());
+    return '/admin/users?role=$_roleFilter&page=1&limit=20'
+        '${search.isEmpty ? '' : '&search=$search'}';
   }
 
   Future<void> _load() async {
@@ -54,13 +65,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       _error = null;
     });
     try {
-      final search = Uri.encodeQueryComponent(_userSearchController.text.trim());
-      final usersPath = '/admin/users?role=$_roleFilter&page=1&limit=20'
-          '${search.isEmpty ? '' : '&search=$search'}';
       final results = await Future.wait([
         _api.get('/admin/dashboard'),
         _api.get('/admin/companies'),
-        _api.get(usersPath),
+        _api.get(_usersPath()),
         _api.get('/admin/transactions'),
         _api.get('/admin/security-logs'),
       ]);
@@ -79,6 +87,30 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadUsers() async {
+    setState(() => _usersLoading = true);
+    try {
+      final result = await _api.get(_usersPath());
+      if (!mounted) return;
+      setState(() => _users = _list(result['users']));
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _usersLoading = false);
+    }
+  }
+
+  void _onUserSearchChanged(String _) {
+    _userSearchDebounce?.cancel();
+    _userSearchDebounce = Timer(
+      const Duration(milliseconds: 450),
+      _loadUsers,
+    );
   }
 
   Future<void> _approveCompany(dynamic id) async {
@@ -394,7 +426,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         onChanged: (v) {
           if (v == null) return;
           setState(() => _roleFilter = v);
-          _load();
+          _loadUsers();
         },
       ),
       child: Column(
@@ -404,42 +436,66 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             decoration: InputDecoration(
               labelText: 'Search users',
               prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: IconButton(
-                tooltip: 'Search',
-                onPressed: _load,
-                icon: const Icon(Icons.arrow_forward_rounded),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_userSearchController.text.trim().isNotEmpty)
+                    IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        setState(() => _userSearchController.clear());
+                        _loadUsers();
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  IconButton(
+                    tooltip: 'Search',
+                    onPressed: _usersLoading ? null : _loadUsers,
+                    icon: _usersLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.arrow_forward_rounded),
+                  ),
+                ],
               ),
             ),
-            onSubmitted: (_) => _load(),
+            onChanged: (value) {
+              setState(() {});
+              _onUserSearchChanged(value);
+            },
+            onSubmitted: (_) => _loadUsers(),
           ),
           const SizedBox(height: 14),
-          _users.isEmpty
-              ? _emptyText('No users match this filter.')
-              : Column(
-                  children: _users.map((user) {
-                    return _PanelRow(
-                      icon: Icons.person_outline_rounded,
-                      iconColor: AppColors.brandPrimary,
-                      iconBg: AppColors.brandTint,
-                      title: '${user['name'] ?? user['email']}',
-                      subtitle: '${user['email'] ?? ''} - joined ${_date(user['created_at'])}',
-                      trailing: DropdownButton<String>(
-                        value: (user['role'] as String?) ?? 'passenger',
-                        underline: const SizedBox.shrink(),
-                        items: const [
-                          DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
-                          DropdownMenuItem(value: 'company_admin', child: Text('Company')),
-                          DropdownMenuItem(value: 'driver', child: Text('Driver')),
-                          DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
-                          DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
-                        ],
-                        onChanged: (role) => role == null
-                            ? null
-                            : _updateRole(user['user_id'], role),
-                      ),
-                    );
-                  }).toList(),
-                ),
+          if (_usersLoading) ...[
+            const LinearProgressIndicator(minHeight: 2),
+            const SizedBox(height: 12),
+          ] else if (_users.isEmpty)
+            _emptyText('No users match this filter.')
+          else
+            Column(
+              children: _users.map((user) {
+                return _PanelRow(
+                  icon: Icons.person_outline_rounded,
+                  iconColor: AppColors.brandPrimary,
+                  iconBg: AppColors.brandTint,
+                  title: '${user['name'] ?? user['email']}',
+                  subtitle:
+                      '${user['email'] ?? ''} - joined ${_date(user['created_at'])}',
+                  trailing: SizedBox(
+                    width: 116,
+                    child: _UserRoleDropdown(
+                      value: (user['role'] as String?) ?? 'passenger',
+                      onChanged: (role) => role == null
+                          ? null
+                          : _updateRole(user['user_id'], role),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
         ],
       ),
     );
@@ -866,6 +922,42 @@ class _RoleFilterMenu extends StatelessWidget {
           DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
         ],
         onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class _UserRoleDropdown extends StatelessWidget {
+  const _UserRoleDropdown({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String value;
+  final ValueChanged<String?> onChanged;
+
+  static const _items = [
+    DropdownMenuItem(value: 'passenger', child: Text('Passenger')),
+    DropdownMenuItem(value: 'company_admin', child: Text('Company')),
+    DropdownMenuItem(value: 'driver', child: Text('Driver')),
+    DropdownMenuItem(value: 'conductor', child: Text('Conductor')),
+    DropdownMenuItem(value: 'super_admin', child: Text('Admin')),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: value,
+        isExpanded: true,
+        isDense: true,
+        items: _items,
+        onChanged: onChanged,
+        style: const TextStyle(
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+        ),
       ),
     );
   }

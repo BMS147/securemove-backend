@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'auth_service.dart';
 import 'auth_screens.dart';
 import 'stripe_payment_service.dart';
 import 'theme/app_theme.dart';
@@ -24,12 +25,72 @@ Future<void> main() async {
   runApp(const SecureMoveApp());
 }
 
-class SecureMoveApp extends StatelessWidget {
+class SecureMoveApp extends StatefulWidget {
   const SecureMoveApp({super.key});
+
+  @override
+  State<SecureMoveApp> createState() => _SecureMoveAppState();
+}
+
+class _SecureMoveAppState extends State<SecureMoveApp>
+    with WidgetsBindingObserver {
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  bool _sessionExpiredInBackground = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _expireSessionInBackground();
+      case AppLifecycleState.resumed:
+        _returnToLoginIfExpired();
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  Future<void> _expireSessionInBackground() async {
+    final token = await AuthService.instance.getToken();
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    _sessionExpiredInBackground = true;
+    await AuthService.instance.expireSession();
+  }
+
+  void _returnToLoginIfExpired() {
+    if (!_sessionExpiredInBackground) {
+      return;
+    }
+
+    _sessionExpiredInBackground = false;
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) {
+      return;
+    }
+
+    navigator.pushNamedAndRemoveUntil('/', (_) => false);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'SecureMove',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

@@ -11,6 +11,8 @@ class AuthService {
   AuthService._();
   int _failedLoginAttempts = 0;
   static const _requestTimeout = Duration(seconds: 30);
+  static const _offlineMessage =
+      "You're offline. Please go online and try again.";
 
   void _logEvent(String action, String status) {
     debugPrint("ACTION: $action | STATUS: $status | TIME: ${DateTime.now()}");
@@ -41,17 +43,10 @@ class AuthService {
             }),
           )
           .timeout(_requestTimeout);
-    } on TimeoutException catch (error) {
-      throw AuthException(
-        'Create account timed out while contacting $_baseUrl. If this is Render, the service may still be waking up. Please wait a moment and try again.\nDetails: $error',
-      );
-    } on http.ClientException catch (error) {
-      throw AuthException(
-        '${BackendConfig.buildConnectionHelp(
-          featureName: 'Create account',
-          baseUrl: _baseUrl,
-        )}\nDetails: ${error.message}',
-      );
+    } on TimeoutException {
+      throw const AuthException(_offlineMessage);
+    } on http.ClientException {
+      throw const AuthException(_offlineMessage);
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -84,17 +79,10 @@ class AuthService {
             }),
           )
           .timeout(_requestTimeout);
-    } on TimeoutException catch (error) {
-      throw AuthException(
-        'Login timed out while contacting $_baseUrl. If this is Render, the service may still be waking up. Please wait a moment and try again.\nDetails: $error',
-      );
-    } on http.ClientException catch (error) {
-      throw AuthException(
-        '${BackendConfig.buildConnectionHelp(
-          featureName: 'Login',
-          baseUrl: _baseUrl,
-        )}\nDetails: ${error.message}',
-      );
+    } on TimeoutException {
+      throw const AuthException(_offlineMessage);
+    } on http.ClientException {
+      throw const AuthException(_offlineMessage);
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -129,6 +117,10 @@ class AuthService {
   Future<void> logout() async {
     await _storage.delete(key: _tokenKey);
     await _storage.delete(key: _emailKey);
+  }
+
+  Future<void> expireSession() async {
+    await _storage.delete(key: _tokenKey);
   }
 
   Future<String?> getToken() => _storage.read(key: _tokenKey);
