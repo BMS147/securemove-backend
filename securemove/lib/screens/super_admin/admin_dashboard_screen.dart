@@ -32,6 +32,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   List<Map<String, dynamic>> _transactions = const [];
   List<Map<String, dynamic>> _logs = const [];
   String _roleFilter = 'all';
+  bool _generatingReport = false;
+  Map<String, dynamic>? _latestReport;
   final TextEditingController _userSearchController = TextEditingController();
 
   @override
@@ -90,17 +92,57 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _generateReport() async {
-    await _api.get('/admin/reports');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Report generated')),
-    );
+    setState(() => _generatingReport = true);
+    try {
+      final response = await _api.get('/admin/reports');
+      final report = response['report'] as Map<String, dynamic>? ?? const {};
+      if (!mounted) return;
+      setState(() => _latestReport = report);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report generated')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _generatingReport = false);
+    }
   }
 
   Future<void> _logout() async {
     await AuthService.instance.logout();
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+  }
+
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You will need to sign in again to manage SecureMove.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: AppColors.textOnBrand,
+            ),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true) {
+      await _logout();
+    }
   }
 
   @override
@@ -111,52 +153,66 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       allowedRoles: const {'super_admin'},
       child: Scaffold(
         backgroundColor: AppColors.background,
+        drawerScrimColor: Colors.black.withOpacity(0.48),
+        drawer: _AdminDrawer(
+          selectedIndex: _index,
+          onSelected: (v) => setState(() => _index = v),
+          onLogout: _confirmLogout,
+        ),
+        appBar: AppBar(
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: AppColors.surface,
+          foregroundColor: AppColors.textPrimary,
+          centerTitle: false,
+          leading: Builder(
+            builder: (context) => IconButton(
+              tooltip: 'Open menu',
+              onPressed: () => Scaffold.of(context).openDrawer(),
+              icon: const Icon(Icons.menu_rounded),
+            ),
+          ),
+          title: Text(
+            _sectionName(),
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          actions: const [
+            Padding(
+              padding: EdgeInsets.only(right: 14),
+              child: _NotificationDot(),
+            ),
+          ],
+        ),
         body: _loading
             ? const _AdminSkeleton()
             : SafeArea(
-                child: Row(
-                  children: [
-                    _AdminSideNav(
-                      selectedIndex: _index,
-                      onSelected: (v) => setState(() => _index = v),
-                      onLogout: _logout,
-                      expanded: isDesktop,
+                top: false,
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      isDesktop ? 32 : 16,
+                      22,
+                      isDesktop ? 32 : 16,
+                      24,
                     ),
-                    const VerticalDivider(
-                      width: 1,
-                      color: AppColors.border,
-                    ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _load,
-                        child: ListView(
-                          padding: EdgeInsets.fromLTRB(
-                            isDesktop ? 32 : 16,
-                            24,
-                            isDesktop ? 32 : 16,
-                            24,
-                          ),
-                          children: [
-                            _TopBar(
-                              section: _sectionName(),
-                              onLogout: _logout,
-                            ),
-                            const SizedBox(height: 22),
-                            if (_error != null) ...[
-                              ErrorBanner(
-                                title: 'Connection failed',
-                                message:
-                                    'SecureMove API is waking up. Retry in a moment.',
-                                onRetry: _load,
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                            _currentView(isDesktop),
-                          ],
+                    children: [
+                      if (_error != null) ...[
+                        ErrorBanner(
+                          title: 'Connection failed',
+                          message:
+                              'SecureMove API is waking up. Retry in a moment.',
+                          onRetry: _load,
                         ),
-                      ),
-                    ),
-                  ],
+                        const SizedBox(height: 16),
+                      ],
+                      _currentView(isDesktop),
+                    ],
+                  ),
                 ),
               ),
       ),
@@ -239,23 +295,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        LayoutBuilder(
-          builder: (context, c) {
-            final cols = c.maxWidth > 1000
-                ? 4
-                : c.maxWidth > 700
-                    ? 2
-                    : 1;
-            final spacing = 16.0;
-            final width = (c.maxWidth - spacing * (cols - 1)) / cols;
-            return Wrap(
-              spacing: spacing,
-              runSpacing: spacing,
-              children: kpis
-                  .map((k) => SizedBox(width: width, child: k))
-                  .toList(),
-            );
-          },
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: kpis.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 14,
+            mainAxisSpacing: 14,
+            mainAxisExtent: 156,
+          ),
+          itemBuilder: (context, index) => kpis[index],
         ),
         const SizedBox(height: 22),
         _recentActivityView(),
@@ -470,9 +520,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            onPressed: _generateReport,
-            icon: const Icon(Icons.download_rounded),
-            label: const Text('Generate report'),
+            onPressed: _generatingReport ? null : _generateReport,
+            icon: _generatingReport
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded),
+            label: Text(_generatingReport ? 'Generating...' : 'Generate report'),
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.brandVivid,
               foregroundColor: AppColors.textOnBrand,
@@ -482,6 +538,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
             ),
           ),
+          if (_latestReport != null) ...[
+            const SizedBox(height: 18),
+            _GeneratedReportCard(report: _latestReport!),
+          ],
         ],
       ),
     );
@@ -515,54 +575,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 // ===========================================================================
 // Layout pieces
 // ===========================================================================
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.section, required this.onLogout});
-
-  final String section;
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Super Admin',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                section,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.8,
-                ),
-              ),
-            ],
-          ),
-        ),
-        IconButton.filledTonal(
-          onPressed: onLogout,
-          icon: const Icon(Icons.logout_rounded),
-          style: IconButton.styleFrom(
-            backgroundColor: AppColors.dangerLight,
-            foregroundColor: AppColors.dangerText,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _Panel extends StatelessWidget {
   const _Panel({
@@ -675,6 +687,158 @@ class _PanelRow extends StatelessWidget {
   }
 }
 
+class _GeneratedReportCard extends StatelessWidget {
+  const _GeneratedReportCard({required this.report});
+
+  final Map<String, dynamic> report;
+
+  @override
+  Widget build(BuildContext context) {
+    final generatedAt = _formatDate(report['generatedAt']);
+    final reportId = '${report['reportId'] ?? 'SECUREMOVE-REPORT'}';
+    final revenue = _formatMoney(report['revenue']);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.brandWash,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.brandBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.accentLight,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.description_outlined,
+                  color: AppColors.accent,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      reportId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Generated $generatedAt',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _ReportMetric(
+                label: 'Companies',
+                value: '${report['totalCompanies'] ?? 0}',
+              ),
+              _ReportMetric(
+                label: 'Users',
+                value: '${report['totalUsers'] ?? 0}',
+              ),
+              _ReportMetric(
+                label: 'Bookings',
+                value: '${report['totalBookings'] ?? 0}',
+              ),
+              _ReportMetric(
+                label: 'Revenue',
+                value: 'ZMW $revenue',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatDate(dynamic raw) {
+    if (raw is! String) return 'just now';
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return 'just now';
+    return DateFormat('d MMM y, HH:mm').format(parsed.toLocal());
+  }
+
+  static String _formatMoney(dynamic raw) {
+    if (raw is num) return raw.toStringAsFixed(2);
+    if (raw is String) return (num.tryParse(raw) ?? 0).toStringAsFixed(2);
+    return '0.00';
+  }
+}
+
+class _ReportMetric extends StatelessWidget {
+  const _ReportMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 132,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RoleFilterMenu extends StatelessWidget {
   const _RoleFilterMenu({required this.value, required this.onChanged});
 
@@ -708,21 +872,19 @@ class _RoleFilterMenu extends StatelessWidget {
 }
 
 // ===========================================================================
-// Side nav
+// Drawer nav
 // ===========================================================================
 
-class _AdminSideNav extends StatelessWidget {
-  const _AdminSideNav({
+class _AdminDrawer extends StatelessWidget {
+  const _AdminDrawer({
     required this.selectedIndex,
     required this.onSelected,
     required this.onLogout,
-    required this.expanded,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onSelected;
   final VoidCallback onLogout;
-  final bool expanded;
 
   static const _items = [
     (icon: Icons.grid_view_rounded, label: 'Overview'),
@@ -733,147 +895,257 @@ class _AdminSideNav extends StatelessWidget {
     (icon: Icons.assessment_outlined, label: 'Reports'),
   ];
 
+  static const _navy = Color(0xFF071225);
+  static const _drawerText = Color(0xFFE5E7EB);
+  static const _drawerMuted = Color(0xFF94A3B8);
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: expanded ? 240 : 88,
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-      color: AppColors.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
-            child: Row(
+    final width = MediaQuery.sizeOf(context).width;
+
+    return Drawer(
+      width: width < 420 ? width * 0.86 : 340,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(
+          right: Radius.circular(30),
+        ),
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: _navy,
+          borderRadius: BorderRadius.horizontal(
+            right: Radius.circular(30),
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    gradient: AppColors.brandGradientShort,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.shield_outlined,
-                    color: AppColors.textOnBrand,
-                    size: 20,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 24),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          gradient: AppColors.brandGradientShort,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x553564F2),
+                              blurRadius: 24,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.shield_outlined,
+                          color: AppColors.textOnBrand,
+                          size: 23,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'SecureMove',
+                              style: TextStyle(
+                                color: _drawerText,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Admin Console',
+                              style: TextStyle(
+                                color: _drawerMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (expanded) ...[
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'SecureMove\nadmin',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                        height: 1.2,
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: _items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final item = _items[index];
+                      final selected = selectedIndex == index;
+                      return _AdminDrawerItem(
+                        icon: item.icon,
+                        label: item.label,
+                        selected: selected,
+                        onTap: () {
+                          Navigator.pop(context);
+                          onSelected(index);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Divider(height: 1, color: Color(0x1FFFFFFF)),
+                const SizedBox(height: 14),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      onLogout();
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x18EF4444),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0x30EF4444)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            color: Color(0xFFFCA5A5),
+                            size: 21,
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Sign out',
+                            style: TextStyle(
+                              color: Color(0xFFFCA5A5),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 10),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _items.length,
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                final selected = selectedIndex == index;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => onSelected(index),
-                      borderRadius: BorderRadius.circular(12),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: EdgeInsets.symmetric(
-                          horizontal: expanded ? 12 : 0,
-                          vertical: expanded ? 11 : 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: selected
-                              ? AppColors.brandTint
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: expanded
-                            ? Row(
-                                children: [
-                                  Icon(
-                                    item.icon,
-                                    size: 20,
-                                    color: selected
-                                        ? AppColors.brandPrimary
-                                        : AppColors.textMuted,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    item.label,
-                                    style: TextStyle(
-                                      color: selected
-                                          ? AppColors.brandPrimary
-                                          : AppColors.textSecondary,
-                                      fontWeight: selected
-                                          ? FontWeight.w700
-                                          : FontWeight.w600,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Tooltip(
-                                message: item.label,
-                                child: Column(
-                                  children: [
-                                    Icon(
-                                      item.icon,
-                                      color: selected
-                                          ? AppColors.brandPrimary
-                                          : AppColors.textMuted,
-                                      size: 22,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      item.label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: selected
-                                            ? AppColors.brandPrimary
-                                            : AppColors.textSecondary,
-                                        fontWeight: selected
-                                            ? FontWeight.w800
-                                            : FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          IconButton.filledTonal(
-            onPressed: onLogout,
-            icon: const Icon(Icons.logout_rounded),
-            style: IconButton.styleFrom(
-              backgroundColor: AppColors.dangerLight,
-              foregroundColor: AppColors.dangerText,
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _AdminDrawerItem extends StatelessWidget {
+  const _AdminDrawerItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.ease,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? const Color(0x665B6EF5) : Colors.transparent,
+            ),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x334F46E5),
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: selected ? AppColors.textOnBrand : _AdminDrawer._drawerMuted,
+                size: 21,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? AppColors.textOnBrand
+                        : _AdminDrawer._drawerText,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                    fontSize: 14,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationDot extends StatelessWidget {
+  const _NotificationDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: 'Notifications',
+          onPressed: () {},
+          icon: const Icon(Icons.notifications_none_rounded),
+        ),
+        Positioned(
+          right: 13,
+          top: 13,
+          child: Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: AppColors.danger,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.surface, width: 1.5),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -886,33 +1158,30 @@ class _AdminSkeleton extends StatelessWidget {
   const _AdminSkeleton();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Column(
-              children: [
-                SkeletonCard(height: 88),
-                SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(child: SkeletonCard(height: 132)),
-                    SizedBox(width: 12),
-                    Expanded(child: SkeletonCard(height: 132)),
-                  ],
-                ),
-                SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: SkeletonCard(height: 132)),
-                    SizedBox(width: 12),
-                    Expanded(child: SkeletonCard(height: 132)),
-                  ],
-                ),
-                SizedBox(height: 14),
-                SkeletonCard(height: 260),
-              ],
-            ),
+  Widget build(BuildContext context) => const SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: SkeletonCard(height: 132)),
+                  SizedBox(width: 12),
+                  Expanded(child: SkeletonCard(height: 132)),
+                ],
+              ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: SkeletonCard(height: 132)),
+                  SizedBox(width: 12),
+                  Expanded(child: SkeletonCard(height: 132)),
+                ],
+              ),
+              SizedBox(height: 14),
+              SkeletonCard(height: 260),
+            ],
           ),
         ),
       );

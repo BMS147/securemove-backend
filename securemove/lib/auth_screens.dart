@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
@@ -150,6 +152,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return _AuthScaffold(
+      playMobileIntro: true,
       panel: TweenAnimationBuilder<double>(
         duration: const Duration(milliseconds: 700),
         tween: Tween(begin: 0.92, end: 1),
@@ -548,10 +551,12 @@ class _AuthScaffold extends StatelessWidget {
   const _AuthScaffold({
     required this.panel,
     this.showBackButton = false,
+    this.playMobileIntro = false,
   });
 
   final Widget panel;
   final bool showBackButton;
+  final bool playMobileIntro;
 
   @override
   Widget build(BuildContext context) {
@@ -560,7 +565,9 @@ class _AuthScaffold extends StatelessWidget {
     return Scaffold(
       body: isDesktop
           ? _DesktopSplit(panel: panel, showBackButton: showBackButton)
-          : _MobileLayout(panel: panel, showBackButton: showBackButton),
+          : playMobileIntro && !showBackButton
+              ? _MobileIntroLayout(panel: panel)
+              : _MobileLayout(panel: panel, showBackButton: showBackButton),
     );
   }
 }
@@ -758,12 +765,17 @@ class _FeatureRow extends StatelessWidget {
           child: Icon(icon, size: 16, color: AppColors.textOnBrand),
         ),
         const SizedBox(width: 12),
-        Text(
-          text,
-          style: const TextStyle(
-            color: AppColors.textOnBrandSoft,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textOnBrandSoft,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0,
+            ),
           ),
         ),
       ],
@@ -773,7 +785,11 @@ class _FeatureRow extends StatelessWidget {
 
 /// Mobile: gradient backdrop + centered card (original layout).
 class _MobileLayout extends StatelessWidget {
-  const _MobileLayout({required this.panel, required this.showBackButton});
+  const _MobileLayout({
+    super.key,
+    required this.panel,
+    required this.showBackButton,
+  });
 
   final Widget panel;
   final bool showBackButton;
@@ -834,6 +850,228 @@ class _MobileLayout extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileIntroLayout extends StatefulWidget {
+  const _MobileIntroLayout({required this.panel});
+
+  final Widget panel;
+
+  @override
+  State<_MobileIntroLayout> createState() => _MobileIntroLayoutState();
+}
+
+class _MobileIntroLayoutState extends State<_MobileIntroLayout>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _logoScale;
+  late final Animation<double> _contentFade;
+  late final Animation<Offset> _contentSlide;
+  Timer? _timer;
+  bool _showLogin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..forward();
+    _logoScale = Tween<double>(begin: 0.78, end: 1).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0, 0.55, curve: Curves.easeOutBack),
+      ),
+    );
+    _contentFade = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.32, 1, curve: Curves.easeOut),
+    );
+    _contentSlide = Tween<Offset>(
+      begin: const Offset(0, 0.16),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: const Interval(0.32, 1, curve: Curves.easeOutCubic),
+      ),
+    );
+    _timer = Timer(const Duration(milliseconds: 2600), () {
+      if (mounted) setState(() => _showLogin = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 620),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: _showLogin
+          ? _MobileLayout(
+              key: const ValueKey('mobile-login'),
+              panel: widget.panel,
+              showBackButton: false,
+            )
+          : _SecureMoveIntro(
+              key: const ValueKey('securemove-intro'),
+              logoScale: _logoScale,
+              contentFade: _contentFade,
+              contentSlide: _contentSlide,
+            ),
+    );
+  }
+}
+
+class _SecureMoveIntro extends StatelessWidget {
+  const _SecureMoveIntro({
+    super.key,
+    required this.logoScale,
+    required this.contentFade,
+    required this.contentSlide,
+  });
+
+  final Animation<double> logoScale;
+  final Animation<double> contentFade;
+  final Animation<Offset> contentSlide;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.brandGradient),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -70,
+            right: -60,
+            child: _BackdropOrb(
+              size: 230,
+              colors: [
+                Colors.white.withOpacity(0.20),
+                Colors.white.withOpacity(0.05),
+              ],
+            ),
+          ),
+          Positioned(
+            bottom: -90,
+            left: -70,
+            child: _BackdropOrb(
+              size: 270,
+              colors: [
+                Colors.white.withOpacity(0.16),
+                Colors.white.withOpacity(0.04),
+              ],
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(26, 34, 26, 30),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ScaleTransition(
+                    scale: logoScale,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Icon(
+                            Icons.shield_outlined,
+                            color: AppColors.textOnBrand,
+                            size: 30,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Text(
+                          'SecureMove',
+                          style: TextStyle(
+                            color: AppColors.textOnBrand,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  FadeTransition(
+                    opacity: contentFade,
+                    child: SlideTransition(
+                      position: contentSlide,
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Secure intercity\ntravel, simplified.',
+                            style: TextStyle(
+                              color: AppColors.textOnBrand,
+                              fontSize: 36,
+                              fontWeight: FontWeight.w900,
+                              height: 1.08,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Search routes, compare operators, and check in with a QR, all from one place.',
+                            style: TextStyle(
+                              color: AppColors.textOnBrandSoft,
+                              fontSize: 16,
+                              height: 1.45,
+                            ),
+                          ),
+                          SizedBox(height: 28),
+                          _FeatureRow(
+                            icon: Icons.directions_bus_filled_rounded,
+                            text: 'Live schedules across 12 Zambian cities',
+                          ),
+                          SizedBox(height: 14),
+                          _FeatureRow(
+                            icon: Icons.lock_outline_rounded,
+                            text: 'Mobile money + card payments',
+                          ),
+                          SizedBox(height: 14),
+                          _FeatureRow(
+                            icon: Icons.qr_code_2_rounded,
+                            text: 'Digital tickets with QR check-in',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  FadeTransition(
+                    opacity: contentFade,
+                    child: const Text(
+                      'Opening SecureMove...',
+                      style: TextStyle(
+                        color: AppColors.textOnBrandSoft,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

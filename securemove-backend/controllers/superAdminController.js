@@ -245,17 +245,24 @@ async function scanLogs(req, res) {
 }
 
 async function reports(req, res) {
-  const [companyCount, bookingCount, revenue] = await Promise.all([
+  const generatedAt = new Date();
+  const [companyCount, userCount, bookingCount, revenue] = await Promise.all([
     pool.query('SELECT COUNT(*)::int AS count FROM companies'),
+    pool.query('SELECT COUNT(*)::int AS count FROM users'),
     pool.query('SELECT COUNT(*)::int AS count FROM bookings'),
-    pool.query("SELECT COALESCE(SUM(total_amount) FILTER (WHERE status = 'paid'), 0)::numeric AS total FROM bookings"),
+    pool.query(
+      `SELECT COALESCE(SUM(amount) FILTER (WHERE LOWER(status) IN ('successful', 'paid')), 0)::numeric AS total
+       FROM payments`
+    ),
   ]);
   return res.json({
     report: {
-      generatedAt: new Date().toISOString(),
+      reportId: `SM-${generatedAt.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`,
+      generatedAt: generatedAt.toISOString(),
       totalCompanies: companyCount.rows[0].count,
+      totalUsers: userCount.rows[0].count,
       totalBookings: bookingCount.rows[0].count,
-      revenue: revenue.rows[0].total,
+      revenue: Number(revenue.rows[0].total ?? 0),
     },
   });
 }
