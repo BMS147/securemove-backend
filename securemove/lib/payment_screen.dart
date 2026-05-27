@@ -31,6 +31,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
   String? _activeMobileMethod;
   bool _processingDialogVisible = false;
 
+  // ── Phone input controller ─────────────────────────────────────────────────
+  // Kept at state level (not inside _collectPhone) so it is never disposed
+  // while the bottom-sheet's exit animation is still running. The IME
+  // keyboard-hide animation lasts ~300 ms (15–20 frames at 60 fps) and
+  // rebuilds the TextField on every frame; if the controller is disposed after
+  // showModalBottomSheet returns (even one frame later via addPostFrameCallback)
+  // those rebuilds crash with "TextEditingController used after being disposed".
+  final _phoneCtrl = TextEditingController();
+
   // ── Booking cache ──────────────────────────────────────────────────────────
   int? _activeBookingId;
   String? _activeBookingRef;
@@ -47,6 +56,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
   void initState() {
     super.initState();
     _loadMomoConfig();
+  }
+
+  @override
+  void dispose() {
+    _phoneCtrl.dispose();
+    super.dispose();
   }
 
   // ── Derived helpers ────────────────────────────────────────────────────────
@@ -179,6 +194,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final phone = await _collectPhone(method);
     if (phone == null || !mounted) return;
 
+    // Yield a microtask so the bottom-sheet's widget subtree finishes
+    // deactivating before we show another dialog on the same context.
+    // Without this gap, MediaQuery dependents inside the sheet can still
+    // be live when Flutter tears down the sheet's InheritedWidget tree,
+    // triggering the '_dependents.isEmpty' assertion in framework.dart.
+    await Future<void>.microtask(() {});
+    if (!mounted) return;
+
     // Cancellation is coordinated via this Completer. The dialog's "Cancel"
     // button completes it, and the polling loop races against it so it exits
     // immediately instead of waiting out the next 2-second delay.
@@ -215,10 +238,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
       if (!mounted || cancelSignal.isCompleted) return;
 
-      // Dialog is still open — close it before navigating.
+      // Close the processing dialog. Mark the flag immediately so
+      // _closeDialogSafely won't try to pop it a second time.
+      _processingDialogVisible = false;
       Navigator.of(context, rootNavigator: true).pop();
 
       if (settled.payment.isPending) {
+        if (!mounted) return;
         _showInfo(
           'Payment request sent. Approve the prompt on your phone; your ticket will appear after confirmation.',
         );
@@ -232,6 +258,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
               : 'Payment was declined. Check your wallet balance and try again.',
         );
       }
+
+      // Let the dialog-pop animation frame complete before replacing the
+      // route; pushing immediately can leave InheritedWidget dependents
+      // from the dialog still live while the old route is being torn down.
+      await Future<void>.microtask(() {});
+      if (!mounted) return;
 
       await Navigator.pushReplacement(
         context,
@@ -386,7 +418,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   // ── Phone collection sheet ─────────────────────────────────────────────────
 
   Future<String?> _collectPhone(String method) async {
-    final ctrl = TextEditingController();
+    // Re-use the state-level controller; clear any text from a previous attempt.
+    _phoneCtrl.clear();
     String? validationMsg;
 
     final result = await showModalBottomSheet<String>(
@@ -395,17 +428,39 @@ class _PaymentScreenState extends State<PaymentScreen> {
       backgroundColor: Colors.transparent,
       builder: (sheetCtx) {
         return StatefulBuilder(
-          builder: (_, setModal) {
+          // Use the StatefulBuilder's own context (ctx) for MediaQuery so that
+          // this widget — not the outer sheetCtx — is the InheritedWidget
+          // dependent. The outer context is mid-deactivation when the keyboard
+          // hides after the sheet closes, which causes the
+          // '_dependents.isEmpty' assertion. The inner ctx deactivates before
+          // MediaQuery, so the dependency is properly unregistered first.
+          builder: (ctx, setModal) {
             Future<void> submit() async {
-              final digits = ctrl.text.trim().replaceAll(RegExp(r'[^0-9+]'), '');
+              final digits = _phoneCtrl.text.trim().replaceAll(RegExp(r'[^0-9+]'), '');
               if (digits.length < 10) {
                 setModal(() => validationMsg = 'Enter a valid mobile money number.');
                 return;
               }
-              Navigator.of(sheetCtx).pop(digits);
+              // Dismiss the keyboard BEFORE closing the sheet.
+              //
+              // While the TextField holds focus the keyboard is visible, so
+              // popping the route immediately causes a MediaQuery.viewInsets
+              // change (keyboard-hide animation) that races with the modal
+              // route's InheritedWidget deactivation tree — producing the
+              // '_dependents.isEmpty' assertion.
+              //
+              // Calling unfocus() first tells Flutter to hide the keyboard.
+              // addPostFrameCallback delays the actual pop until AFTER the
+              // current frame's build/layout/paint cycle completes, giving the
+              // InheritedWidget dependency graph a clean state before the
+              // route is torn down.
+              FocusScope.of(ctx).unfocus();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (sheetCtx.mounted) Navigator.of(sheetCtx).pop(digits);
+              });
             }
 
-            final inset = MediaQuery.of(sheetCtx).viewInsets.bottom;
+            final inset = MediaQuery.of(ctx).viewInsets.bottom;
 
             return Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, inset + 16),
@@ -462,7 +517,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     ),
                     const SizedBox(height: 20),
                     TextField(
-                      controller: ctrl,
+                      controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
                       autofocus: true,
                       decoration: InputDecoration(
@@ -483,7 +538,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () => Navigator.of(sheetCtx).pop(),
+                            onPressed: () {
+                              // Same unfocus-then-pop pattern as submit() to
+                              // avoid the keyboard/InheritedWidget race.
+                              FocusScope.of(ctx).unfocus();
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                if (sheetCtx.mounted) {
+                                  Navigator.of(sheetCtx).pop();
+                                }
+                              });
+                            },
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.textSecondary,
                               side: const BorderSide(color: AppColors.border),
@@ -524,7 +588,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
       },
     );
 
-    ctrl.dispose();
+    // _phoneCtrl is NOT disposed here — it lives for the lifetime of
+    // _PaymentScreenState and is disposed in State.dispose(). Disposing it
+    // anywhere inside _collectPhone (even deferred via addPostFrameCallback)
+    // is too early: the IME keyboard-hide animation runs for ~300 ms / 15-20
+    // frames and rebuilds the TextField on every frame, so the controller must
+    // remain alive until the animation is truly finished.
     return result;
   }
 

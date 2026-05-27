@@ -332,7 +332,11 @@ class _BookingCard extends StatelessWidget {
               ],
             ),
           ],
-          const Spacer(),
+          // A fixed gap instead of Spacer() — Spacer is a flex widget that
+          // requires a bounded height, but inside SliverList the Column's
+          // height is unconstrained, producing a "non-zero flex but incoming
+          // height constraints are unbounded" layout error.
+          const SizedBox(height: 12),
           const Divider(height: 24, color: AppColors.border),
           Row(
             children: [

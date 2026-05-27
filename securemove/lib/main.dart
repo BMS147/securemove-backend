@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
@@ -165,6 +166,21 @@ class _FallbackErrorView extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
+                  // In debug builds show the actual exception so it can be
+                  // diagnosed without needing to read the device log.
+                  if (kDebugMode) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      details.exceptionAsString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFFEF4444),
+                        fontFamily: 'monospace',
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

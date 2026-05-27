@@ -58,16 +58,25 @@ class MobileMoneyResult {
   });
 
   factory MobileMoneyResult.fromJson(Map<String, dynamic> json) {
-    final payment = json['payment'] as Map<String, dynamic>?;
-    if (payment == null) {
+    // The 'payment' field must be a JSON object. Use an 'is' check rather
+    // than a hard cast so that an unexpected type produces a clear AuthException
+    // instead of an uncaught TypeError.
+    final rawPayment = json['payment'];
+    if (rawPayment is! Map<String, dynamic>) {
       throw const AuthException(
         'The backend did not return a mobile money payment record.',
       );
     }
+    final payment = rawPayment;
 
-    // Prefer the top-level message, then fall back to the failure reason
-    // returned by Lenco inside providerStatus (e.g. "Not enough funds").
-    final providerStatus = json['providerStatus'] as Map<String, dynamic>?;
+    // The initiate endpoint returns providerStatus as a plain STRING (e.g.
+    // "pending"), while the status-polling endpoint returns it as an object
+    // ({ status, reason }).  A hard cast with 'as Map?' throws TypeError when
+    // the value is a non-null String.  Use a safe type-check instead.
+    final rawProviderStatus = json['providerStatus'];
+    final providerStatus = rawProviderStatus is Map<String, dynamic>
+        ? rawProviderStatus
+        : null;
     final reason = providerStatus?['reason'] as String?;
     final message = (json['message'] as String?)?.isNotEmpty == true
         ? json['message'] as String

@@ -41,14 +41,17 @@ class TicketScreen extends StatelessWidget {
       return bookingReference!;
     }
     final routeCode =
-        '${bus.origin.substring(0, 3)}${bus.destination.substring(0, 3)}'
-            .toUpperCase();
+        '${_safeCode(bus.origin)}${_safeCode(bus.destination)}'.toUpperCase();
     return 'SM-${bus.scheduleId}-$routeCode';
   }
 
+  // Safely take up to 3 characters — origin/destination can be empty if the
+  // API response omits the field (Bus.fromJson defaults both to '').
+  static String _safeCode(String city) =>
+      city.length >= 3 ? city.substring(0, 3) : city;
+
   String get _routeCode =>
-      '${bus.origin.substring(0, 3)}-${bus.destination.substring(0, 3)}'
-          .toUpperCase();
+      '${_safeCode(bus.origin)}-${_safeCode(bus.destination)}'.toUpperCase();
 
   String get ticketData {
     return Uri(
