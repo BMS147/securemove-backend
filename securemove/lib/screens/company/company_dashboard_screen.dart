@@ -85,6 +85,31 @@ class _CompanyOperatorWorkspaceScreenState
     Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
   }
 
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text('You will need to sign in again to manage this company.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: AppColors.textOnBrand,
+            ),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (shouldLogout == true) await _logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDesktop = Breakpoints.isDesktop(context);
@@ -92,45 +117,63 @@ class _CompanyOperatorWorkspaceScreenState
       allowedRoles: const {'company_admin'},
       child: Scaffold(
         backgroundColor: AppColors.background,
+        drawerScrimColor: Colors.black.withOpacity(0.48),
+        drawer: _CompanyDrawer(
+          sections: _sections,
+          selected: _section,
+          onSelected: (i) => setState(() => _section = i),
+          onLogout: _confirmLogout,
+        ),
+        appBar: AppBar(
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          backgroundColor: AppColors.surface,
+          foregroundColor: AppColors.textPrimary,
+          leading: Builder(
+            builder: (context) => IconButton(
+              tooltip: 'Open menu',
+              onPressed: () => Scaffold.of(context).openDrawer(),
+              icon: const Icon(Icons.menu_rounded),
+            ),
+          ),
+          title: Text(
+            _sections[_section].label,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0,
+            ),
+          ),
+          actions: const [
+            Padding(
+              padding: EdgeInsets.only(right: 14),
+              child: _NotificationDot(),
+            ),
+          ],
+        ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : SafeArea(
-                child: Row(
-                  children: [
-                    _SideNav(
-                      sections: _sections,
-                      selected: _section,
-                      expanded: isDesktop,
-                      onSelected: (i) => setState(() => _section = i),
-                      onLogout: _logout,
+                top: false,
+                child: RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: EdgeInsets.fromLTRB(
+                      isDesktop ? 32 : 16,
+                      22,
+                      isDesktop ? 32 : 16,
+                      32,
                     ),
-                    const VerticalDivider(
-                      width: 1,
-                      color: AppColors.border,
-                    ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _load,
-                        child: ListView(
-                          padding: EdgeInsets.fromLTRB(
-                            isDesktop ? 32 : 16,
-                            22,
-                            isDesktop ? 32 : 16,
-                            32,
-                          ),
-                          children: [
-                            _header(),
-                            const SizedBox(height: 22),
-                            if (_error != null) ...[
-                              _ErrorBanner(message: _error!),
-                              const SizedBox(height: 14),
-                            ],
-                            _currentSection(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                    children: [
+                      _header(),
+                      const SizedBox(height: 22),
+                      if (_error != null) ...[
+                        _ErrorBanner(message: _error!),
+                        const SizedBox(height: 14),
+                      ],
+                      _currentSection(),
+                    ],
+                  ),
                 ),
               ),
         floatingActionButton: _section >= 1 && _section <= 4
@@ -212,6 +255,7 @@ class _CompanyOperatorWorkspaceScreenState
           ['origin', 'destination', 'price'],
           Icons.alt_route_rounded,
           _deleteRoute,
+          onEdit: _editRoutePrice,
         );
       case 3:
         return _entityTable(
@@ -227,7 +271,7 @@ class _CompanyOperatorWorkspaceScreenState
         return _entityTable(
           _staff,
           ['Name', 'Email', 'Role'],
-          ['full_name', 'email', 'role'],
+          ['full_name', 'email', 'staff_role'],
           Icons.badge_outlined,
           _deleteStaff,
         );
@@ -373,6 +417,7 @@ class _CompanyOperatorWorkspaceScreenState
     List<String> keys,
     IconData icon,
     Future<void> Function(dynamic id)? onDelete, {
+    Future<void> Function(Map<String, dynamic> item)? onEdit,
     int? dateColumn,
     int? routeColumn,
     int? pillColumn,
@@ -413,7 +458,8 @@ class _CompanyOperatorWorkspaceScreenState
             horizontalMargin: 20,
             columns: [
               for (final h in headers) DataColumn(label: Text(h.toUpperCase())),
-              if (onDelete != null) const DataColumn(label: Text('')),
+              if (onEdit != null || onDelete != null)
+                const DataColumn(label: Text('')),
             ],
             rows: items.map((item) {
               final id = item['bus_id'] ??
@@ -421,6 +467,7 @@ class _CompanyOperatorWorkspaceScreenState
                   item['route_id'] ??
                   item['trip_id'] ??
                   item['driver_id'] ??
+                  item['staff_id'] ??
                   item['booking_id'];
 
               final cells = <DataCell>[];
@@ -455,11 +502,25 @@ class _CompanyOperatorWorkspaceScreenState
                   cells.add(DataCell(Text('${item[keys[i]] ?? '—'}')));
                 }
               }
-              if (onDelete != null) {
-                cells.add(DataCell(IconButton(
-                  onPressed: () => onDelete(id),
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                  color: AppColors.dangerText,
+              if (onEdit != null || onDelete != null) {
+                cells.add(DataCell(Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (onEdit != null)
+                      IconButton(
+                        tooltip: 'Edit',
+                        onPressed: () => onEdit(item),
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        color: AppColors.brandPrimary,
+                      ),
+                    if (onDelete != null)
+                      IconButton(
+                        tooltip: 'Delete',
+                        onPressed: () => onDelete(id),
+                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        color: AppColors.dangerText,
+                      ),
+                  ],
                 )));
               }
               return DataRow(cells: cells);
@@ -483,6 +544,18 @@ class _CompanyOperatorWorkspaceScreenState
   Future<void> _showCreateForm() async {
     final index = _section - 1; // adjust: section 1 = buses (index 0 of labels)
     if (index < 0 || index > 3) return;
+    if (index == 0) {
+      await _showCreateBusForm();
+      return;
+    }
+    if (index == 2) {
+      await _showCreateScheduleForm();
+      return;
+    }
+    if (index == 3) {
+      await _showCreateStaffForm();
+      return;
+    }
     final title = ['Add bus', 'Add route', 'Create schedule', 'Add staff'][index];
     final controllers = List.generate(5, (_) => TextEditingController());
     final formKey = GlobalKey<FormState>();
@@ -591,6 +664,482 @@ class _CompanyOperatorWorkspaceScreenState
     }
   }
 
+  Future<void> _showCreateBusForm() async {
+    final formKey = GlobalKey<FormState>();
+    final plateController = TextEditingController();
+    final capacityController = TextEditingController();
+    final typeController = TextEditingController(text: 'Coach');
+    String? errorMessage;
+    bool saving = false;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Add bus',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: plateController,
+                  textCapitalization: TextCapitalization.characters,
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? 'Required' : null,
+                  decoration: const InputDecoration(
+                    labelText: 'Plate number',
+                    hintText: 'ABC 1234',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: capacityController,
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    final capacity = int.tryParse((value ?? '').trim());
+                    return capacity == null || capacity <= 0
+                        ? 'Enter a valid capacity'
+                        : null;
+                  },
+                  decoration: const InputDecoration(labelText: 'Capacity'),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: typeController,
+                  decoration: const InputDecoration(labelText: 'Bus type'),
+                ),
+                if (errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    errorMessage!,
+                    style: const TextStyle(
+                      color: AppColors.dangerText,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          setModalState(() {
+                            saving = true;
+                            errorMessage = null;
+                          });
+                          try {
+                            await _api.post('/company/buses', {
+                              'plate': plateController.text.trim(),
+                              'capacity':
+                                  int.parse(capacityController.text.trim()),
+                              'type': typeController.text.trim().isEmpty
+                                  ? 'Coach'
+                                  : typeController.text.trim(),
+                            });
+                            if (context.mounted) Navigator.pop(context, true);
+                          } on ApiException catch (error) {
+                            setModalState(() {
+                              saving = false;
+                              errorMessage = error.message;
+                            });
+                          }
+                        },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.brandVivid,
+                    foregroundColor: AppColors.textOnBrand,
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  child: Text(saving ? 'Saving...' : 'Save bus'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    plateController.dispose();
+    capacityController.dispose();
+    typeController.dispose();
+    if (saved == true) await _load();
+  }
+
+  Future<void> _showCreateStaffForm() async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final badgeController = TextEditingController();
+    final passwordController = TextEditingController();
+    var role = 'driver';
+    String? errorMessage;
+    bool saving = false;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Add staff',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    value: role,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: const [
+                      DropdownMenuItem(value: 'driver', child: Text('Driver')),
+                      DropdownMenuItem(
+                        value: 'conductor',
+                        child: Text('Conductor'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setModalState(() => role = value);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: nameController,
+                    validator: (value) =>
+                        (value ?? '').trim().isEmpty ? 'Required' : null,
+                    decoration: const InputDecoration(labelText: 'Full name'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      hintText: 'Optional, required for app login',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Phone'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: badgeController,
+                    decoration: InputDecoration(
+                      labelText:
+                          role == 'driver' ? 'License number' : 'Badge number',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: passwordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Login password',
+                      hintText: 'Optional, creates/updates user login',
+                    ),
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      errorMessage!,
+                      style: const TextStyle(
+                        color: AppColors.dangerText,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (!formKey.currentState!.validate()) return;
+                            setModalState(() {
+                              saving = true;
+                              errorMessage = null;
+                            });
+                            try {
+                              await _api.post('/company/staff', {
+                                'name': nameController.text.trim(),
+                                'email': emailController.text.trim(),
+                                'phone_number': phoneController.text.trim(),
+                                'role': role,
+                                'license_number': badgeController.text.trim(),
+                                'password': passwordController.text.trim(),
+                              });
+                              if (context.mounted) Navigator.pop(context, true);
+                            } on ApiException catch (error) {
+                              setModalState(() {
+                                saving = false;
+                                errorMessage = error.message;
+                              });
+                            }
+                          },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brandVivid,
+                      foregroundColor: AppColors.textOnBrand,
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                    child: Text(saving ? 'Saving...' : 'Save staff'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    nameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+    badgeController.dispose();
+    passwordController.dispose();
+    if (saved == true) await _load();
+  }
+
+  Future<void> _showCreateScheduleForm() async {
+    final formKey = GlobalKey<FormState>();
+    final departureController = TextEditingController();
+    final routeItems = _routes.where((item) => item['schedule_id'] != null).toList();
+    final busItems = _buses.where((item) => item['bus_id'] != null).toList();
+    final driverItems = _staff
+        .where((item) => item['staff_role'] == 'driver' && item['staff_id'] != null)
+        .toList();
+    final conductorItems = _staff
+        .where((item) => item['staff_role'] == 'conductor' && item['staff_id'] != null)
+        .toList();
+    dynamic routeId = routeItems.isNotEmpty ? routeItems.first['schedule_id'] : null;
+    dynamic busId = busItems.isNotEmpty ? busItems.first['bus_id'] : null;
+    dynamic driverId = driverItems.isNotEmpty ? driverItems.first['staff_id'] : null;
+    dynamic conductorId =
+        conductorItems.isNotEmpty ? conductorItems.first['staff_id'] : null;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            18,
+            18,
+            18,
+            MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Create schedule',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _IdDropdown(
+                    label: 'Route',
+                    value: routeId,
+                    items: routeItems,
+                    idKey: 'schedule_id',
+                    labelBuilder: (item) =>
+                        '${item['origin']} to ${item['destination']} - ${item['price']}',
+                    onChanged: (value) => setModalState(() => routeId = value),
+                  ),
+                  const SizedBox(height: 10),
+                  _IdDropdown(
+                    label: 'Bus',
+                    value: busId,
+                    items: busItems,
+                    idKey: 'bus_id',
+                    labelBuilder: (item) =>
+                        '${item['registration_number']} (${item['capacity']} seats)',
+                    onChanged: (value) => setModalState(() => busId = value),
+                  ),
+                  const SizedBox(height: 10),
+                  _IdDropdown(
+                    label: 'Driver',
+                    value: driverId,
+                    items: driverItems,
+                    idKey: 'staff_id',
+                    labelBuilder: (item) => '${item['full_name']}',
+                    onChanged: (value) => setModalState(() => driverId = value),
+                  ),
+                  const SizedBox(height: 10),
+                  _IdDropdown(
+                    label: 'Conductor',
+                    value: conductorId,
+                    items: conductorItems,
+                    idKey: 'staff_id',
+                    labelBuilder: (item) => '${item['full_name']}',
+                    onChanged: (value) =>
+                        setModalState(() => conductorId = value),
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: departureController,
+                    validator: (value) =>
+                        (value ?? '').trim().isEmpty ? 'Required' : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Departure date and time',
+                      hintText: '2026-05-27 08:30',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () async {
+                      if (!formKey.currentState!.validate()) return;
+                      if (routeId == null ||
+                          busId == null ||
+                          driverId == null ||
+                          conductorId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Add a route, bus, driver, and conductor first.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      await _api.post('/company/schedules', {
+                        'route': routeId,
+                        'bus': busId,
+                        'driver': driverId,
+                        'conductor': conductorId,
+                        'departure_time': departureController.text.trim(),
+                      });
+                      if (context.mounted) Navigator.pop(context, true);
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.brandVivid,
+                      foregroundColor: AppColors.textOnBrand,
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                    child: const Text('Save schedule'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    departureController.dispose();
+    if (saved == true) await _load();
+  }
+
+  Future<void> _editRoutePrice(Map<String, dynamic> route) async {
+    final controller = TextEditingController(text: '${route['price'] ?? ''}');
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          18,
+          18,
+          MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${route['origin']} to ${route['destination']}',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Ticket price',
+                prefixIcon: Icon(Icons.payments_outlined),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () async {
+                final price = controller.text.trim();
+                if (price.isEmpty) return;
+                await _api.put('/company/routes/${route['schedule_id']}', {
+                  'price': price,
+                });
+                if (context.mounted) Navigator.pop(context, true);
+              },
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('Update price'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.brandVivid,
+                foregroundColor: AppColors.textOnBrand,
+                minimumSize: const Size.fromHeight(52),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (updated == true) await _load();
+  }
+
   Future<void> _deleteBus(dynamic id) async =>
       _api.delete('/company/buses/$id').then((_) => _load());
   Future<void> _deleteRoute(dynamic id) async =>
@@ -610,166 +1159,301 @@ class _CompanyOperatorWorkspaceScreenState
       : '—';
 }
 
+class _IdDropdown extends StatelessWidget {
+  const _IdDropdown({
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.idKey,
+    required this.labelBuilder,
+    required this.onChanged,
+  });
+
+  final String label;
+  final dynamic value;
+  final List<Map<String, dynamic>> items;
+  final String idKey;
+  final String Function(Map<String, dynamic> item) labelBuilder;
+  final ValueChanged<dynamic> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<dynamic>(
+      value: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      validator: (value) => value == null ? 'Required' : null,
+      items: items
+          .map(
+            (item) => DropdownMenuItem<dynamic>(
+              value: item[idKey],
+              child: Text(
+                labelBuilder(item),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+}
+
 // ===========================================================================
-// Side nav
+// Drawer nav
 // ===========================================================================
 
-class _SideNav extends StatelessWidget {
-  const _SideNav({
+class _CompanyDrawer extends StatelessWidget {
+  const _CompanyDrawer({
     required this.sections,
     required this.selected,
-    required this.expanded,
     required this.onSelected,
     required this.onLogout,
   });
 
   final List<({IconData icon, String label})> sections;
   final int selected;
-  final bool expanded;
   final ValueChanged<int> onSelected;
   final VoidCallback onLogout;
 
+  static const _navy = Color(0xFF071225);
+  static const _drawerText = Color(0xFFE5E7EB);
+  static const _drawerMuted = Color(0xFF94A3B8);
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: expanded ? 240 : 88,
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-      color: AppColors.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
-            child: Row(
+    final width = MediaQuery.sizeOf(context).width;
+    return Drawer(
+      width: width < 420 ? width * 0.86 : 340,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(30)),
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: _navy,
+          borderRadius: BorderRadius.horizontal(right: Radius.circular(30)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    gradient: AppColors.brandGradientShort,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.business_rounded,
-                    color: AppColors.textOnBrand,
-                    size: 20,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 24),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          gradient: AppColors.brandGradientShort,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Icon(
+                          Icons.business_rounded,
+                          color: AppColors.textOnBrand,
+                          size: 23,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'SecureMove',
+                              style: TextStyle(
+                                color: _drawerText,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Company Console',
+                              style: TextStyle(
+                                color: _drawerMuted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                if (expanded) ...[
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text(
-                      'Operator\nworkspace',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textPrimary,
-                        height: 1.2,
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: sections.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
+                    itemBuilder: (context, index) {
+                      final section = sections[index];
+                      return _CompanyDrawerItem(
+                        icon: section.icon,
+                        label: section.label,
+                        selected: selected == index,
+                        onTap: () {
+                          Navigator.pop(context);
+                          onSelected(index);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Divider(height: 1, color: Color(0x1FFFFFFF)),
+                const SizedBox(height: 14),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      onLogout();
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x18EF4444),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0x30EF4444)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            color: Color(0xFFFCA5A5),
+                            size: 21,
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Sign out',
+                            style: TextStyle(
+                              color: Color(0xFFFCA5A5),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
-          const Divider(height: 1, color: AppColors.border),
-          const SizedBox(height: 10),
-          Expanded(
-            child: ListView.builder(
-              itemCount: sections.length,
-              itemBuilder: (context, index) {
-                final s = sections[index];
-                final isSelected = selected == index;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => onSelected(index),
-                      borderRadius: BorderRadius.circular(12),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        padding: EdgeInsets.symmetric(
-                          horizontal: expanded ? 12 : 0,
-                          vertical: expanded ? 11 : 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppColors.brandTint
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: expanded
-                            ? Row(
-                                children: [
-                                  Icon(
-                                    s.icon,
-                                    size: 20,
-                                    color: isSelected
-                                        ? AppColors.brandPrimary
-                                        : AppColors.textMuted,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    s.label,
-                                    style: TextStyle(
-                                      color: isSelected
-                                          ? AppColors.brandPrimary
-                                          : AppColors.textSecondary,
-                                      fontWeight: isSelected
-                                          ? FontWeight.w700
-                                          : FontWeight.w600,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Tooltip(
-                                message: s.label,
-                                child: Column(
-                                  children: [
-                                    Icon(
-                                      s.icon,
-                                      color: isSelected
-                                          ? AppColors.brandPrimary
-                                          : AppColors.textMuted,
-                                      size: 22,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      s.label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isSelected
-                                            ? AppColors.brandPrimary
-                                            : AppColors.textSecondary,
-                                        fontWeight: isSelected
-                                            ? FontWeight.w800
-                                            : FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          IconButton.filledTonal(
-            onPressed: onLogout,
-            icon: const Icon(Icons.logout_rounded),
-            style: IconButton.styleFrom(
-              backgroundColor: AppColors.dangerLight,
-              foregroundColor: AppColors.dangerText,
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+}
+
+class _CompanyDrawerItem extends StatelessWidget {
+  const _CompanyDrawerItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.ease,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accent : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: selected
+                ? const [
+                    BoxShadow(
+                      color: Color(0x334F46E5),
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: selected
+                    ? AppColors.textOnBrand
+                    : _CompanyDrawer._drawerMuted,
+                size: 21,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected
+                        ? AppColors.textOnBrand
+                        : _CompanyDrawer._drawerText,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
+                    fontSize: 14,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationDot extends StatelessWidget {
+  const _NotificationDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: 'Notifications',
+          onPressed: () {},
+          icon: const Icon(Icons.notifications_none_rounded),
+        ),
+        Positioned(
+          right: 13,
+          top: 13,
+          child: Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: AppColors.danger,
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.surface, width: 1.5),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

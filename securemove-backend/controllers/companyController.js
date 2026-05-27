@@ -49,7 +49,9 @@ async function dashboard(req, res) {
 async function listBuses(req, res) {
   const result = await pool.query(
     `SELECT bus_id, company_id, registration_number, capacity, type, features, is_active, created_at
-     FROM buses WHERE company_id = $1 ORDER BY created_at DESC`,
+     FROM buses
+     WHERE company_id = $1 AND is_active = TRUE
+     ORDER BY created_at DESC`,
     [companyIdFrom(req)]
   );
   return res.json({ buses: result.rows });
@@ -106,7 +108,7 @@ async function listRoutes(req, res) {
   const result = await pool.query(
     `SELECT schedule_id, company_id, origin, destination, departure_time, price, duration_minutes, features, active, created_at
      FROM route_schedules
-     WHERE company_id = $1
+     WHERE company_id = $1 AND active = TRUE
      ORDER BY origin, destination, departure_time`,
     [companyIdFrom(req)]
   );
@@ -183,7 +185,7 @@ async function listSchedules(req, res) {
      LEFT JOIN buses b ON b.bus_id = tr.bus_id
      LEFT JOIN drivers d ON d.driver_id = tr.driver_id
      LEFT JOIN conductors co ON co.conductor_id = tr.conductor_id
-     WHERE rs.company_id = $1
+     WHERE rs.company_id = $1 AND tr.status <> 'cancelled'
      ORDER BY tr.departure_time ASC`,
     [companyIdFrom(req)]
   );
@@ -202,7 +204,13 @@ async function createSchedule(req, res) {
   if (!conductorId) {
     return res.status(400).json({ error: 'A conductor is required for scanner access' });
   }
-  const departureAt = date ? new Date(`${date}T${String(departure_time).slice(0, 5)}:00`) : new Date(departure_time);
+  const departureValue = String(departure_time).trim().replace(' ', 'T');
+  const departureAt = date
+    ? new Date(`${date}T${departureValue.slice(0, 5)}:00`)
+    : new Date(departureValue);
+  if (Number.isNaN(departureAt.getTime())) {
+    return res.status(400).json({ error: 'Use a valid departure date and time' });
+  }
   const result = await pool.query(
     `INSERT INTO trips (schedule_id, bus_id, driver_id, conductor_id, departure_time, available_seats, status)
      SELECT $1, $2, $3, $4, $5, capacity, 'scheduled'
@@ -258,7 +266,7 @@ async function listStaff(req, res) {
             is_active,
             created_at
      FROM drivers
-     WHERE company_id = $1
+     WHERE company_id = $1 AND is_active = TRUE
      UNION ALL
      SELECT conductor_id AS staff_id,
             'conductor' AS staff_role,
@@ -270,7 +278,7 @@ async function listStaff(req, res) {
             is_active,
             created_at
      FROM conductors
-     WHERE company_id = $1
+     WHERE company_id = $1 AND is_active = TRUE
      ORDER BY full_name`,
     [companyIdFrom(req)]
   );
@@ -285,7 +293,9 @@ async function createStaff(req, res) {
     ? 'conductor'
     : 'driver';
   const badgeOrLicense = String(license_number || `${staffRole.toUpperCase()}-${Date.now()}`).trim().toUpperCase();
-  const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+  const normalizedEmail = email && String(email).trim()
+    ? String(email).trim().toLowerCase()
+    : null;
 
   const result = staffRole === 'conductor'
     ? await pool.query(
@@ -301,7 +311,7 @@ async function createStaff(req, res) {
         [companyIdFrom(req), staffName, normalizedEmail, phone_number || null, badgeOrLicense]
       );
 
-  if (email && password) {
+  if (normalizedEmail && password && String(password).trim()) {
     const passwordHash = await bcrypt.hash(String(password), 10);
     await pool.query(
       `INSERT INTO users (name, email, password_hash, role_id, company_id)
