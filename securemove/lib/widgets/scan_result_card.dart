@@ -134,8 +134,15 @@ class ScanResultCard extends StatelessWidget {
         ];
       case 'EXPIRED':
         return [
-          line('This ticket was valid for ${result['departureTime'] ?? 'the scheduled departure'}'),
+          line('This ticket was valid for ${_readTime(result['departureTime'])}'),
           line('DO NOT ALLOW BOARDING', strong: true),
+        ];
+      case 'SCHEDULED_LATER':
+        return [
+          line('Route: ${result['route'] ?? 'assigned trip'}'),
+          line('Departure: ${_readTime(result['departureTime'])}'),
+          line('Boarding starts: ${_readTime(result['boardingStartsAt'])}'),
+          line('DO NOT ALLOW BOARDING YET', strong: true),
         ];
       case 'FAKE':
         return [
@@ -186,6 +193,14 @@ class ScanResultCard extends StatelessWidget {
           background: AppColors.danger,
           shadow: Color(0xFFDC2626),
         );
+      case 'SCHEDULED_LATER':
+        return const _ScanResultConfig(
+          title: 'TRIP SCHEDULED LATER',
+          message: 'Trip is scheduled for a later time',
+          icon: Icons.schedule_rounded,
+          background: AppColors.warning,
+          shadow: Color(0xFFD97706),
+        );
       case 'WRONG_TRIP':
         return const _ScanResultConfig(
           title: 'WRONG TRIP',
@@ -219,6 +234,15 @@ class ScanResultCard extends StatelessWidget {
           shadow: Color(0xFF450A0A),
         );
     }
+  }
+
+  String _readTime(dynamic value) {
+    if (value == null) return 'the scheduled departure';
+    final parsed = DateTime.tryParse(value.toString())?.toLocal();
+    if (parsed == null) return value.toString();
+    final hour = parsed.hour.toString().padLeft(2, '0');
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 }
 

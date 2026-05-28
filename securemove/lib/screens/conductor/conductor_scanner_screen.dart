@@ -171,6 +171,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
       case 'ALREADY_USED':
       case 'WRONG_TRIP':
       case 'EXPIRED':
+      case 'SCHEDULED_LATER':
         HapticFeedback.heavyImpact();
         break;
       default:

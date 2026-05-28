@@ -6,6 +6,7 @@ const {
 } = require('../services/scanSecurity');
 
 const DEFAULT_EXPIRY_BUFFER_MINUTES = 30;
+const DEFAULT_BOARDING_WINDOW_MINUTES = 120;
 
 function verifySignedTicket(qrCode) {
   const secret = ticketSecret();
@@ -34,9 +35,35 @@ async function findTodayAssignedTrip(pool, conductorId) {
      WHERE tr.conductor_id = $1
        AND tr.departure_time::date = CURRENT_DATE
        AND tr.status IN ('scheduled', 'boarding', 'BOARDING', 'DEPARTED')
-     ORDER BY tr.departure_time ASC
+     ORDER BY
+       CASE
+         WHEN tr.status IN ('boarding', 'BOARDING') THEN 0
+         WHEN tr.departure_time <= NOW()
+           AND COALESCE(tr.arrival_time, tr.departure_time + INTERVAL '6 hours') >= NOW() THEN 1
+         WHEN tr.departure_time > NOW() THEN 2
+         ELSE 3
+       END ASC,
+       CASE WHEN tr.departure_time > NOW() THEN tr.departure_time END ASC,
+       tr.departure_time DESC
      LIMIT 1`,
     [conductorId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function findAssignedTripById(pool, conductorId, tripId) {
+  const result = await pool.query(
+    `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+            rs.origin, rs.destination, b.registration_number, b.capacity
+     FROM trips tr
+     LEFT JOIN route_schedules rs ON rs.schedule_id = tr.schedule_id
+     LEFT JOIN buses b ON b.bus_id = tr.bus_id
+     WHERE tr.conductor_id = $1
+       AND tr.trip_id = $2
+       AND tr.status IN ('scheduled', 'boarding', 'BOARDING', 'DEPARTED')
+     LIMIT 1`,
+    [conductorId, tripId]
   );
 
   return result.rows[0] ?? null;
@@ -126,6 +153,44 @@ function isExpired(departureTime) {
   const expiresAt = new Date(departureTime);
   expiresAt.setMinutes(expiresAt.getMinutes() + (Number.isFinite(bufferMinutes) ? bufferMinutes : DEFAULT_EXPIRY_BUFFER_MINUTES));
   return new Date() > expiresAt;
+}
+
+function isPastTripDay(departureTime) {
+  const departureDay = startOfDay(new Date(departureTime));
+  const today = startOfDay(new Date());
+  return departureDay < today;
+}
+
+function isBeforeBoardingWindow(departureTime) {
+  const windowMinutes = Number.parseInt(
+    process.env.TICKET_BOARDING_WINDOW_MINUTES || `${DEFAULT_BOARDING_WINDOW_MINUTES}`,
+    10
+  );
+  const startsAt = new Date(departureTime);
+  startsAt.setMinutes(
+    startsAt.getMinutes() -
+      (Number.isFinite(windowMinutes) ? windowMinutes : DEFAULT_BOARDING_WINDOW_MINUTES)
+  );
+  return new Date() < startsAt;
+}
+
+function boardingStartsAt(departureTime) {
+  const windowMinutes = Number.parseInt(
+    process.env.TICKET_BOARDING_WINDOW_MINUTES || `${DEFAULT_BOARDING_WINDOW_MINUTES}`,
+    10
+  );
+  const startsAt = new Date(departureTime);
+  startsAt.setMinutes(
+    startsAt.getMinutes() -
+      (Number.isFinite(windowMinutes) ? windowMinutes : DEFAULT_BOARDING_WINDOW_MINUTES)
+  );
+  return startsAt;
+}
+
+function startOfDay(date) {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return day;
 }
 
 function extractTicketLookup(qrCode) {
@@ -292,7 +357,12 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
     };
   }
 
-  if (!assignedTrip || Number(ticket.trip_id) !== Number(assignedTrip.trip_id)) {
+  const ticketAssignedTrip =
+    assignedTrip && Number(ticket.trip_id) === Number(assignedTrip.trip_id)
+      ? assignedTrip
+      : await findAssignedTripById(pool, conductorId, ticket.trip_id);
+
+  if (!ticketAssignedTrip) {
     await logScan(pool, {
       ticketId: ticket.ticket_id,
       conductorId,
@@ -319,7 +389,7 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
     };
   }
 
-  if (new Date(ticket.departure_time).toDateString() !== new Date().toDateString() || isExpired(ticket.departure_time)) {
+  if (isPastTripDay(ticket.departure_time) || isExpired(ticket.departure_time)) {
     await logScan(pool, {
       ticketId: ticket.ticket_id,
       conductorId,
@@ -333,6 +403,30 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
       status: 'EXPIRED',
       departureTime: ticket.departure_time,
       message: 'This ticket is for a past trip',
+    };
+  }
+
+  if (isBeforeBoardingWindow(ticket.departure_time)) {
+    const startsAt = boardingStartsAt(ticket.departure_time);
+    await logScan(pool, {
+      ticketId: ticket.ticket_id,
+      conductorId,
+      tripId: ticket.trip_id,
+      status: 'SCHEDULED_LATER',
+      details: {
+        rawHash: lookup.rawHash,
+        departureTime: ticket.departure_time,
+        boardingStartsAt: startsAt.toISOString(),
+      },
+      qrHash: lookup.rawHash,
+      req,
+    });
+    return {
+      status: 'SCHEDULED_LATER',
+      route: `${ticket.origin || 'Origin'} -> ${ticket.destination || 'Destination'}`,
+      departureTime: ticket.departure_time,
+      boardingStartsAt: startsAt.toISOString(),
+      message: 'Trip is scheduled for a later time',
     };
   }
 
@@ -419,6 +513,7 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
 }
 
 module.exports = {
+  findAssignedTripById,
   findTodayAssignedTrip,
   verifyAndUseTicket,
   verifySignedTicket,
