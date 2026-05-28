@@ -55,6 +55,15 @@ async function fulfillPaidBooking(bookingId, financialTransactionId = null) {
   }
 }
 
+async function cancelUnpaidBooking(bookingId) {
+  await pool.query(
+    `UPDATE bookings
+     SET status = 'cancelled', updated_at = NOW()
+     WHERE booking_id = $1 AND status <> 'paid'`,
+    [bookingId]
+  );
+}
+
 /**
  * Create one ticket for a booking if none exists yet.
  * Uses ON CONFLICT DO NOTHING so it's safe to call repeatedly.
@@ -120,4 +129,4 @@ function buildTicketQrPayload({ ticketNumber, bookingReference }) {
   );
 }
 
-module.exports = { fulfillPaidBooking };
+module.exports = { cancelUnpaidBooking, fulfillPaidBooking };

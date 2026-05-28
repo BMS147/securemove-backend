@@ -22,7 +22,10 @@ const {
   initiateCollection: lencoInitiateCollection,
   getCollectionStatus: lencoGetCollectionStatus,
 } = require('../services/lencoService');
-const { fulfillPaidBooking } = require('../services/bookingFulfillment');
+const {
+  cancelUnpaidBooking,
+  fulfillPaidBooking,
+} = require('../services/bookingFulfillment');
 
 const router = express.Router();
 
@@ -149,6 +152,8 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
     return res.status(400).json({ error: 'provider must be mtn or airtel' });
   }
 
+  let bookingToCancelOnFailure = null;
+
   try {
     const bookingResult = await pool.query(
       `SELECT booking_id, user_id, trip_id, total_amount, status
@@ -162,8 +167,14 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
     }
 
     const booking = bookingResult.rows[0];
+    bookingToCancelOnFailure = booking.booking_id;
     if (booking.status === 'paid') {
+      bookingToCancelOnFailure = null;
       return res.status(409).json({ error: 'This booking is already paid' });
+    }
+    if (booking.status === 'cancelled') {
+      bookingToCancelOnFailure = null;
+      return res.status(409).json({ error: 'This booking has been cancelled. Start a new booking to pay.' });
     }
 
     let transactionReference;
@@ -185,6 +196,7 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
       // of storing a doomed pending payment and waiting for polling to fail.
       if (result.status === 'failed') {
         const reason = result.reason || 'Payment was declined by the mobile money provider.';
+        await cancelUnpaidBooking(booking.booking_id);
         return res.status(402).json({ error: reason });
       }
 
@@ -249,6 +261,9 @@ router.post('/mobile-money/initiate', authenticateToken, async (req, res) => {
       message: modeMessages[mobileMoneyMode] || modeMessages.mock,
     });
   } catch (err) {
+    if (bookingToCancelOnFailure) {
+      await cancelUnpaidBooking(bookingToCancelOnFailure).catch(() => {});
+    }
     console.error('Initiate mobile money payment error:', err.message);
     return res.status(500).json({ error: toPublicPaymentError(err) });
   }
@@ -305,6 +320,10 @@ router.get('/:paymentId/status', authenticateToken, async (req, res) => {
          WHERE payment_id = $2`,
         [nextStatus, payment.payment_id]
       );
+    }
+
+    if (nextStatus === 'failed') {
+      await cancelUnpaidBooking(payment.booking_id);
     }
 
     // A payment may already be marked successful by the webhook before the app

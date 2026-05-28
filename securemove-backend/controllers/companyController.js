@@ -340,7 +340,9 @@ async function deleteStaff(req, res) {
 
 async function bookings(req, res) {
   const result = await pool.query(
-    `SELECT bk.booking_id, bk.booking_reference, bk.total_amount, bk.status, bk.created_at,
+    `SELECT bk.booking_id, bk.booking_reference, bk.total_amount,
+            CASE WHEN bk.status = 'paid' THEN 'paid' ELSE 'cancelled' END AS status,
+            bk.created_at,
             u.name AS passenger_name, tr.trip_id, tr.departure_time, rs.origin, rs.destination
      FROM bookings bk
      INNER JOIN users u ON u.user_id = bk.user_id

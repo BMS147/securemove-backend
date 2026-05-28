@@ -99,7 +99,7 @@ class _MyBookingsViewState extends State<MyBookingsView> {
             icon: Icons.confirmation_number_outlined,
             title: 'No bookings yet',
             message:
-                'Your confirmed and reserved trips will appear here once you book your first ride.',
+                'Your paid and cancelled trips will appear here once you book your first ride.',
             actionLabel: 'Refresh',
             onAction: _refresh,
           );
@@ -181,7 +181,7 @@ class _MyBookingsViewState extends State<MyBookingsView> {
 }
 
 // ===========================================================================
-// Filter strip — all / paid / reserved / cancelled
+// Filter strip: all / paid / cancelled
 // ===========================================================================
 
 class _FilterStrip extends StatelessWidget {
@@ -198,7 +198,6 @@ class _FilterStrip extends StatelessWidget {
   static const _options = [
     ('all', 'All'),
     ('paid', 'Paid'),
-    ('reserved', 'Reserved'),
     ('cancelled', 'Cancelled'),
   ];
 

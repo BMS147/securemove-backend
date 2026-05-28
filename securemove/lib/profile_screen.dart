@@ -298,7 +298,7 @@ class _AccountOptions extends StatelessWidget {
           _ProfileOption(
             icon: Icons.confirmation_number_outlined,
             title: 'My bookings',
-            subtitle: 'View reserved and paid trips',
+            subtitle: 'View paid and cancelled trips',
             onTap: onOpenBookings,
           ),
         if (profile?.roleId == 2 || profile?.roleId == 3 || profile?.roleId == 4)

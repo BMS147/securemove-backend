@@ -21,7 +21,10 @@
 const express = require('express');
 const pool = require('../db');
 const { verifyWebhookSignature } = require('../services/lencoService');
-const { fulfillPaidBooking } = require('../services/bookingFulfillment');
+const {
+  cancelUnpaidBooking,
+  fulfillPaidBooking,
+} = require('../services/bookingFulfillment');
 
 const router = express.Router();
 
@@ -132,6 +135,8 @@ router.post('/', async (req, res) => {
           })]
         ).catch(logErr => console.error('[Lenco webhook] Failed to write audit log:', logErr.message));
       }
+    } else {
+      await cancelUnpaidBooking(payment.booking_id);
     }
 
     console.log(`[Lenco webhook] Payment ${payment.payment_id} updated to ${nextStatus}`);

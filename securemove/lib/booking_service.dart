@@ -66,6 +66,41 @@ class BookingRecord {
   }
 }
 
+class TicketRecord {
+  const TicketRecord({
+    required this.ticketId,
+    required this.bookingId,
+    required this.passengerName,
+    required this.seatNumber,
+    required this.ticketNumber,
+    required this.qrCodeHash,
+    required this.status,
+  });
+
+  factory TicketRecord.fromJson(Map<String, dynamic> json) {
+    return TicketRecord(
+      ticketId: json['ticket_id'] as int? ?? 0,
+      bookingId: json['booking_id'] as int? ?? 0,
+      passengerName:
+          (json['passenger_name'] as String?) ?? 'SecureMove Passenger',
+      seatNumber: (json['seat_number'] as String?) ?? 'AUTO-1',
+      ticketNumber: (json['ticket_number'] as String?) ?? 'Ticket',
+      qrCodeHash: (json['qr_code_hash'] as String?) ?? '',
+      status: (json['status'] as String?) ?? 'unknown',
+    );
+  }
+
+  final int ticketId;
+  final int bookingId;
+  final String passengerName;
+  final String seatNumber;
+  final String ticketNumber;
+  final String qrCodeHash;
+  final String status;
+
+  bool get hasSignedQr => qrCodeHash.trim().isNotEmpty;
+}
+
 class BookingService {
   BookingService._();
 
@@ -135,6 +170,57 @@ class BookingService {
     return bookings
         .whereType<Map<String, dynamic>>()
         .map(BookingRecord.fromJson)
+        .toList();
+  }
+
+  Future<void> cancelBooking(int bookingId) async {
+    final token = await _requireToken();
+
+    await _post(
+      '/bookings/$bookingId/cancel',
+      token: token,
+      body: const {},
+      featureName: 'Cancel booking',
+    );
+  }
+
+  Future<List<TicketRecord>> getBookingTickets(int bookingId) async {
+    final token = await _requireToken();
+
+    http.Response response;
+    try {
+      response = await http
+          .get(
+            Uri.parse('$_baseUrl/tickets/booking/$bookingId'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            },
+          )
+          .timeout(const Duration(seconds: 12));
+    } on TimeoutException catch (error) {
+      throw AuthException(
+        'Tickets timed out while contacting $_baseUrl.\nDetails: $error',
+      );
+    } on http.ClientException catch (error) {
+      throw AuthException(
+        '${BackendConfig.buildConnectionHelp(featureName: 'Tickets', baseUrl: _baseUrl)}\nDetails: ${error.message}',
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthException(_extractErrorMessage(response));
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final tickets = body['tickets'];
+    if (tickets is! List) {
+      return const [];
+    }
+
+    return tickets
+        .whereType<Map<String, dynamic>>()
+        .map(TicketRecord.fromJson)
         .toList();
   }
 

@@ -38,7 +38,9 @@ router.post('/reserve', authenticateToken, async (req, res) => {
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT b.booking_id, b.user_id, b.trip_id, b.booking_reference, b.total_amount, b.status, b.created_at, b.updated_at,
+      `SELECT b.booking_id, b.user_id, b.trip_id, b.booking_reference, b.total_amount,
+              CASE WHEN b.status = 'paid' THEN 'paid' ELSE 'cancelled' END AS status,
+              b.created_at, b.updated_at,
               t.departure_time, t.status AS trip_status,
               rs.origin, rs.destination,
               c.name AS company_name
@@ -67,7 +69,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT booking_id, user_id, trip_id, booking_reference, total_amount, status, created_at, updated_at
+      `SELECT booking_id, user_id, trip_id, booking_reference, total_amount,
+              CASE WHEN status = 'paid' THEN 'paid' ELSE 'cancelled' END AS status,
+              created_at, updated_at
        FROM bookings
        WHERE booking_id = $1 AND user_id = $2`,
       [bookingId, req.user.user_id]

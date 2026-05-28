@@ -145,6 +145,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _activeBookingRef = null;
   }
 
+  Future<void> _cancelActiveBooking() async {
+    final bookingId = _activeBookingId;
+    if (bookingId == null || bookingId <= 0) {
+      return;
+    }
+
+    _clearBookingCache();
+    try {
+      await BookingService.instance.cancelBooking(bookingId);
+    } catch (_) {
+      // Server-side payment polling/webhooks also cancel failed unpaid
+      // bookings, so this client cleanup is intentionally best-effort.
+    }
+  }
+
   // ── Payment entry points ───────────────────────────────────────────────────
 
   Future<void> _onPayWithCard() async {
@@ -166,6 +181,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ticketCount: _ticketCount,
         travelDate: _travelDate,
       );
+      final ticket = await _loadSignedTicket(_activeBookingId);
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -173,6 +189,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
           builder: (_) => TicketScreen(
             bus: widget.bus,
             bookingReference: _activeBookingRef,
+            signedQrPayload: ticket.qrCodeHash,
+            ticketNumber: ticket.ticketNumber,
+            seatNumber: ticket.seatNumber,
             method: 'Credit / Debit Card',
             travelDate: _travelDate,
             ticketCount: _ticketCount,
@@ -180,9 +199,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
         ),
       );
     } on PaymentException catch (e) {
+      await _cancelActiveBooking();
       if (!mounted) return;
       _showError(e.message);
     } catch (e) {
+      await _cancelActiveBooking();
       if (!mounted) return;
       _showError('Card payment failed. Please try again.');
     } finally {
@@ -265,12 +286,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
       await Future<void>.microtask(() {});
       if (!mounted) return;
 
+      final ticket = await _loadSignedTicket(booking.bookingId);
+      if (!mounted) return;
+
       await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => TicketScreen(
             bus: widget.bus,
             bookingReference: booking.bookingReference,
+            signedQrPayload: ticket.qrCodeHash,
+            ticketNumber: ticket.ticketNumber,
+            seatNumber: ticket.seatNumber,
             method: method,
             travelDate: _travelDate,
             ticketCount: _ticketCount,
@@ -279,17 +306,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     } on AuthException catch (e) {
       if (!mounted || cancelSignal.isCompleted) return;
+      await _cancelActiveBooking();
+      if (!mounted) return;
       _closeDialogSafely();
       _showError(e.message);
     } on PaymentException catch (e) {
       if (!mounted || cancelSignal.isCompleted) return;
+      await _cancelActiveBooking();
+      if (!mounted) return;
       _closeDialogSafely();
       _showError(e.message);
     } catch (e) {
       if (!mounted || cancelSignal.isCompleted) return;
+      await _cancelActiveBooking();
+      if (!mounted) return;
       _closeDialogSafely();
       _showError('Payment failed. Please try again.');
     } finally {
+      if (cancelSignal.isCompleted) {
+        await _cancelActiveBooking();
+      }
       if (mounted) {
         setState(() {
           _isProcessingMobile = false;
@@ -308,7 +344,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         tripId: widget.bus.tripId ?? 0,
         bookingReference: _activeBookingRef!,
         totalAmount: _total,
-        status: 'reserved',
+        status: 'pending',
         createdAt: DateTime.now(),
       );
     }
@@ -327,6 +363,24 @@ class _PaymentScreenState extends State<PaymentScreen> {
     _activeBookingId = booking.bookingId;
     _activeBookingRef = booking.bookingReference;
     return booking;
+  }
+
+  Future<TicketRecord> _loadSignedTicket(int? bookingId) async {
+    if (bookingId == null || bookingId <= 0) {
+      throw const PaymentException(
+        'Payment succeeded, but no booking was linked to issue a signed ticket.',
+      );
+    }
+
+    final tickets = await BookingService.instance.getBookingTickets(bookingId);
+    final signedTickets = tickets.where((ticket) => ticket.hasSignedQr);
+    if (signedTickets.isEmpty) {
+      throw const PaymentException(
+        'Payment succeeded, but the signed QR ticket is not ready yet. Refresh My bookings in a moment.',
+      );
+    }
+
+    return signedTickets.first;
   }
 
   // ── Payment status polling ─────────────────────────────────────────────────
