@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -51,7 +50,6 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
   };
   int _boarded = 0;
   int _total = 0;
-  Timer? _resetTimer;
   String? _lastPayloadHash;
   DateTime? _lastPayloadAt;
 
@@ -67,7 +65,6 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
 
   @override
   void dispose() {
-    _resetTimer?.cancel();
     _laserController.dispose();
     _cameraController.dispose();
     super.dispose();
@@ -149,17 +146,18 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
         };
       });
     } finally {
-      _resetTimer?.cancel();
-      _resetTimer = Timer(const Duration(seconds: 4), () async {
-        if (!mounted) return;
-        setState(() {
-          _result = null;
-          _processing = false;
-        });
-        if (_trip != null) {
-          await _cameraController.start();
-        }
-      });
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _dismissResult() async {
+    if (!mounted) return;
+    setState(() {
+      _result = null;
+      _processing = false;
+    });
+    if (_trip != null) {
+      await _cameraController.start();
     }
   }
 
@@ -268,14 +266,8 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
                                   child: Center(
                                     child: ScanResultCard(
                                       result: _result!,
-                                      onRetry: () {
-                                        _resetTimer?.cancel();
-                                        setState(() {
-                                          _result = null;
-                                          _processing = false;
-                                        });
-                                        _cameraController.start();
-                                      },
+                                      onDismiss: _dismissResult,
+                                      onRetry: _dismissResult,
                                       onReportDuplicate: () =>
                                           _api.post('/conductor/report-duplicate', {
                                         'ticketRef': _result?['ticketRef'],

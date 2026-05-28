@@ -6,11 +6,13 @@ class ScanResultCard extends StatelessWidget {
   const ScanResultCard({
     super.key,
     required this.result,
+    this.onDismiss,
     this.onReportDuplicate,
     this.onRetry,
   });
 
   final Map<String, dynamic> result;
+  final VoidCallback? onDismiss;
   final Future<void> Function()? onReportDuplicate;
   final VoidCallback? onRetry;
 
@@ -91,6 +93,18 @@ class ScanResultCard extends StatelessWidget {
                 onPressed: onRetry,
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Retry'),
+              ),
+            ],
+            if (status != 'NETWORK_ERROR' && onDismiss != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onDismiss,
+                icon: const Icon(Icons.arrow_back_rounded),
+                label: const Text('Back to scanner'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: config.background,
+                ),
               ),
             ],
           ],

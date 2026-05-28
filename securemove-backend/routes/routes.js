@@ -27,6 +27,7 @@ router.get('/search', async (req, res) => {
          rs.price,
          rs.duration_minutes,
          rs.features,
+         t.departure_time AS trip_departure_time,
          t.available_seats,
          d.full_name AS driver_name,
          d.phone_number AS driver_phone,
@@ -34,13 +35,15 @@ router.get('/search', async (req, res) => {
          b.registration_number
        FROM route_schedules rs
        INNER JOIN companies c ON c.company_id = rs.company_id
-       LEFT JOIN trips t ON t.schedule_id = rs.schedule_id AND t.status = 'scheduled'
+       LEFT JOIN trips t ON t.schedule_id = rs.schedule_id
+         AND t.status IN ('scheduled', 'boarding', 'BOARDING')
+         AND t.departure_time >= NOW() - INTERVAL '30 minutes'
        LEFT JOIN drivers d ON d.driver_id = t.driver_id
        LEFT JOIN buses b ON b.bus_id = t.bus_id
        WHERE rs.active = TRUE
          AND LOWER(rs.origin) = LOWER($1)
          AND LOWER(rs.destination) = LOWER($2)
-       ORDER BY rs.departure_time ASC, t.trip_id ASC`,
+       ORDER BY t.departure_time ASC NULLS LAST, rs.departure_time ASC, t.trip_id ASC`,
       [from, to]
     );
 
