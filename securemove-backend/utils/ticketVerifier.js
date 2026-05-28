@@ -275,7 +275,7 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
             tk.passenger_name, tk.seat_number,
             bk.status AS booking_status, bk.trip_id, bk.booking_reference,
             tr.departure_time,
-            rs.origin, rs.destination,
+            rs.origin, rs.destination, rs.departure_time AS scheduled_departure_label,
             b.registration_number
      FROM tickets tk
      INNER JOIN bookings bk ON bk.booking_id = tk.booking_id
@@ -389,25 +389,33 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
     };
   }
 
-  if (isPastTripDay(ticket.departure_time) || isExpired(ticket.departure_time)) {
+  const effectiveDepartureTime = resolveEffectiveDepartureTime(ticket);
+  const departureLabel = ticket.scheduled_departure_label || formatTime(effectiveDepartureTime);
+
+  if (isPastTripDay(effectiveDepartureTime) || isExpired(effectiveDepartureTime)) {
     await logScan(pool, {
       ticketId: ticket.ticket_id,
       conductorId,
       tripId: ticket.trip_id,
       status: 'EXPIRED',
-      details: { rawHash: lookup.rawHash, departureTime: ticket.departure_time },
+      details: {
+        rawHash: lookup.rawHash,
+        departureTime: effectiveDepartureTime.toISOString(),
+        scheduledDepartureLabel: departureLabel,
+      },
       qrHash: lookup.rawHash,
       req,
     });
     return {
       status: 'EXPIRED',
-      departureTime: ticket.departure_time,
+      departureTime: effectiveDepartureTime.toISOString(),
+      departureLabel,
       message: 'This ticket is for a past trip',
     };
   }
 
-  if (isBeforeBoardingWindow(ticket.departure_time)) {
-    const startsAt = boardingStartsAt(ticket.departure_time);
+  if (isBeforeBoardingWindow(effectiveDepartureTime)) {
+    const startsAt = boardingStartsAt(effectiveDepartureTime);
     await logScan(pool, {
       ticketId: ticket.ticket_id,
       conductorId,
@@ -415,7 +423,8 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
       status: 'SCHEDULED_LATER',
       details: {
         rawHash: lookup.rawHash,
-        departureTime: ticket.departure_time,
+        departureTime: effectiveDepartureTime.toISOString(),
+        scheduledDepartureLabel: departureLabel,
         boardingStartsAt: startsAt.toISOString(),
       },
       qrHash: lookup.rawHash,
@@ -424,8 +433,10 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
     return {
       status: 'SCHEDULED_LATER',
       route: `${ticket.origin || 'Origin'} -> ${ticket.destination || 'Destination'}`,
-      departureTime: ticket.departure_time,
+      departureTime: effectiveDepartureTime.toISOString(),
+      departureLabel,
       boardingStartsAt: startsAt.toISOString(),
+      boardingStartsAtLabel: formatTime(startsAt),
       message: 'Trip is scheduled for a later time',
     };
   }
@@ -504,12 +515,54 @@ async function verifyAndUseTicket({ pool, qrCode, conductorId, assignedTrip, req
     route: `${ticket.origin || 'Origin'} \u2192 ${ticket.destination || 'Destination'}`,
     busNumber: ticket.registration_number || 'Bus pending',
     ticketRef: ticket.ticket_number,
-    departureTime: new Date(ticket.departure_time).toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
+    departureTime: departureLabel,
     message: 'Passenger may board',
   };
+}
+
+function resolveEffectiveDepartureTime(ticket) {
+  const scheduled = parseScheduleTimeForTripDate(
+    ticket.scheduled_departure_label,
+    ticket.departure_time
+  );
+  return scheduled ?? new Date(ticket.departure_time);
+}
+
+function parseScheduleTimeForTripDate(label, tripDate) {
+  if (!label) return null;
+  const match = String(label)
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return null;
+
+  let hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  const meridiem = match[3].toUpperCase();
+  if (meridiem === 'PM' && hour !== 12) hour += 12;
+  if (meridiem === 'AM' && hour === 12) hour = 0;
+
+  const date = new Date(tripDate);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Date(Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    hour - 2,
+    minute,
+    0,
+    0
+  ));
+}
+
+function formatTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Time pending';
+  return date.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Africa/Lusaka',
+  });
 }
 
 module.exports = {

@@ -135,7 +135,7 @@ class ScanResultCard extends StatelessWidget {
           ),
           line('${result['route'] ?? ''}'),
           line('Bus: ${result['busNumber'] ?? 'Bus pending'}'),
-          line('Departure: ${result['departureTime'] ?? 'Time pending'}'),
+          line('Departure: ${result['departureLabel'] ?? result['departureTime'] ?? 'Time pending'}'),
           line('Ticket ${result['ticketRef'] ?? result['ticketNumber'] ?? ''}'),
         ];
       case 'ALREADY_USED':
@@ -148,14 +148,14 @@ class ScanResultCard extends StatelessWidget {
         ];
       case 'EXPIRED':
         return [
-          line('This ticket was valid for ${_readTime(result['departureTime'])}'),
+          line('This ticket was valid for ${result['departureLabel'] ?? _readTime(result['departureTime'])}'),
           line('DO NOT ALLOW BOARDING', strong: true),
         ];
       case 'SCHEDULED_LATER':
         return [
           line('Route: ${result['route'] ?? 'assigned trip'}'),
-          line('Departure: ${_readTime(result['departureTime'])}'),
-          line('Boarding starts: ${_readTime(result['boardingStartsAt'])}'),
+          line('Departure: ${result['departureLabel'] ?? _readTime(result['departureTime'])}'),
+          line('Boarding starts: ${result['boardingStartsAtLabel'] ?? _readTime(result['boardingStartsAt'])}'),
           line('DO NOT ALLOW BOARDING YET', strong: true),
         ];
       case 'FAKE':
