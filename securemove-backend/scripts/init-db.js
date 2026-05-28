@@ -66,7 +66,7 @@ const bidirectionalRoutes = [
     from: 'Lusaka',
     to: 'Kabwe',
     outbound: [
-      route('Power Tools', '06:30 AM', 'K1', 120, ['Express', 'Wi-Fi', 'USB']),
+      route('Power Tools', '12:30 PM', 'K1', 120, ['Express', 'Wi-Fi', 'USB']),
       route('Mazhandu Family Bus', '09:00 AM', 'K255', 130, ['AC', 'Comfort', 'Luggage']),
       route('Shalom', '02:00 PM', 'K260', 140, ['Window seats', 'Popular', 'On time']),
     ],
