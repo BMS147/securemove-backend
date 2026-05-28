@@ -349,15 +349,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     }
 
-    if (!widget.bus.hasLiveTripId) {
-      throw const PaymentException(
-        'This route is schedule-only and does not support mobile money yet. '
-        'Please pay by card.',
-      );
-    }
-
     final booking = await BookingService.instance.reserveBooking(
-      tripId: widget.bus.tripId!,
+      tripId: widget.bus.tripId,
+      scheduleId: widget.bus.scheduleId,
+      travelDate: _travelDate,
       totalAmount: _total,
     );
     _activeBookingId = booking.bookingId;

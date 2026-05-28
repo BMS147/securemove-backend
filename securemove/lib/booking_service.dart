@@ -109,16 +109,28 @@ class BookingService {
   String get _baseUrl => BackendConfig.authBaseUrl;
 
   Future<BookingRecord> reserveBooking({
-    required int tripId,
+    int? tripId,
+    int? scheduleId,
+    DateTime? travelDate,
     required double totalAmount,
   }) async {
     final token = await _requireToken();
+    if ((tripId == null || tripId <= 0) &&
+        (scheduleId == null || scheduleId <= 0)) {
+      throw const AuthException(
+        'A trip or schedule is required to reserve a booking.',
+      );
+    }
 
     final response = await _post(
       '/bookings/reserve',
       token: token,
       body: {
-        'trip_id': tripId,
+        if (tripId != null && tripId > 0) 'trip_id': tripId,
+        if ((tripId == null || tripId <= 0) && scheduleId != null)
+          'schedule_id': scheduleId,
+        if ((tripId == null || tripId <= 0) && travelDate != null)
+          'travel_date': _dateOnly(travelDate),
         'total_amount': totalAmount,
       },
       featureName: 'Reserve booking',
@@ -232,6 +244,13 @@ class BookingService {
       throw const AuthException('Please log in again to continue.');
     }
     return token;
+  }
+
+  String _dateOnly(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
   }
 
   Future<http.Response> _post(
