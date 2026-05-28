@@ -1080,63 +1080,17 @@ class _CompanyOperatorWorkspaceScreenState
   }
 
   Future<void> _editRoutePrice(Map<String, dynamic> route) async {
-    final controller = TextEditingController(text: '${route['price'] ?? ''}');
     final updated = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          18,
-          18,
-          18,
-          MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '${route['origin']} to ${route['destination']}',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Ticket price',
-                prefixIcon: Icon(Icons.payments_outlined),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () async {
-                final price = controller.text.trim();
-                if (price.isEmpty) return;
-                await _api.put('/company/routes/${route['schedule_id']}', {
-                  'price': price,
-                });
-                if (context.mounted) Navigator.pop(context, true);
-              },
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Update price'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.brandVivid,
-                foregroundColor: AppColors.textOnBrand,
-                minimumSize: const Size.fromHeight(52),
-              ),
-            ),
-          ],
-        ),
+      builder: (_) => _EditRoutePriceSheet(
+        route: route,
+        api: _api,
       ),
     );
-    controller.dispose();
     if (updated == true) await _load();
   }
 
@@ -1157,6 +1111,124 @@ class _CompanyOperatorWorkspaceScreenState
       ? DateFormat('d MMM HH:mm')
           .format(DateTime.tryParse(raw)?.toLocal() ?? DateTime.now())
       : '—';
+}
+
+class _EditRoutePriceSheet extends StatefulWidget {
+  const _EditRoutePriceSheet({
+    required this.route,
+    required this.api,
+  });
+
+  final Map<String, dynamic> route;
+  final ApiService api;
+
+  @override
+  State<_EditRoutePriceSheet> createState() => _EditRoutePriceSheetState();
+}
+
+class _EditRoutePriceSheetState extends State<_EditRoutePriceSheet> {
+  late final TextEditingController _controller;
+  String? _errorMessage;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.route['price'] ?? ''}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final price = _controller.text.trim();
+    if (price.isEmpty) {
+      setState(() => _errorMessage = 'Enter a ticket price.');
+      return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _saving = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await widget.api.put('/company/routes/${widget.route['schedule_id']}', {
+        'price': price,
+      });
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _errorMessage = error.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(18, 18, 18, bottomInset + 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            '${widget.route['origin']} to ${widget.route['destination']}',
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _saving ? null : _submit(),
+            decoration: const InputDecoration(
+              labelText: 'Ticket price',
+              prefixIcon: Icon(Icons.payments_outlined),
+            ),
+          ),
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              _errorMessage!,
+              style: const TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _saving ? null : _submit,
+            icon: const Icon(Icons.save_outlined),
+            label: Text(_saving ? 'Updating...' : 'Update price'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.brandVivid,
+              foregroundColor: AppColors.textOnBrand,
+              minimumSize: const Size.fromHeight(52),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _IdDropdown extends StatelessWidget {

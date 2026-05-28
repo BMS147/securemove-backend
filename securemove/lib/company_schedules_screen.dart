@@ -54,102 +54,16 @@ class _CompanySchedulesScreenState extends State<CompanySchedulesScreen> {
   }
 
   Future<void> _editPrice(CompanySchedule schedule) async {
-    final controller = TextEditingController(text: schedule.price);
-    String? validationMessage;
-    bool isSaving = false;
-
     final updated = await showModalBottomSheet<CompanySchedule>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            Future<void> submit() async {
-              final price = controller.text.trim();
-              if (price.isEmpty) {
-                setModalState(() => validationMessage = 'Enter a ticket price.');
-                return;
-              }
-
-              setModalState(() {
-                isSaving = true;
-                validationMessage = null;
-              });
-
-              try {
-                final result = await _companyService.updateSchedule(
-                  companyId: widget.company.companyId,
-                  scheduleId: schedule.scheduleId,
-                  price: price,
-                );
-                if (sheetContext.mounted) {
-                  Navigator.pop(sheetContext, result);
-                }
-              } on AuthException catch (error) {
-                setModalState(() {
-                  validationMessage = error.message;
-                  isSaving = false;
-                });
-              }
-            }
-
-            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-            return Padding(
-              padding: EdgeInsets.fromLTRB(18, 18, 18, bottomInset + 18),
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      schedule.routeLabel,
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Departure ${schedule.departureTime}',
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: controller,
-                      decoration: const InputDecoration(
-                        labelText: 'Ticket price',
-                        prefixIcon: Icon(Icons.payments_outlined),
-                      ),
-                    ),
-                    if (validationMessage != null) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        validationMessage!,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 18),
-                    ElevatedButton.icon(
-                      onPressed: isSaving ? null : submit,
-                      icon: const Icon(Icons.save_outlined),
-                      label: const Text('Update price'),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (_) => _EditSchedulePriceSheet(
+        companyId: widget.company.companyId,
+        schedule: schedule,
+        companyService: _companyService,
+      ),
     );
-
-    controller.dispose();
 
     if (updated == null || !mounted) {
       return;
@@ -240,6 +154,132 @@ class _CompanySchedulesScreenState extends State<CompanySchedulesScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditSchedulePriceSheet extends StatefulWidget {
+  const _EditSchedulePriceSheet({
+    required this.companyId,
+    required this.schedule,
+    required this.companyService,
+  });
+
+  final int companyId;
+  final CompanySchedule schedule;
+  final CompanyService companyService;
+
+  @override
+  State<_EditSchedulePriceSheet> createState() =>
+      _EditSchedulePriceSheetState();
+}
+
+class _EditSchedulePriceSheetState extends State<_EditSchedulePriceSheet> {
+  late final TextEditingController _controller;
+  String? _validationMessage;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.schedule.price);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final price = _controller.text.trim();
+    if (price.isEmpty) {
+      setState(() => _validationMessage = 'Enter a ticket price.');
+      return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _isSaving = true;
+      _validationMessage = null;
+    });
+
+    try {
+      final result = await widget.companyService.updateSchedule(
+        companyId: widget.companyId,
+        scheduleId: widget.schedule.scheduleId,
+        price: price,
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(result);
+    } on AuthException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _validationMessage = error.message;
+        _isSaving = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(18, 18, 18, bottomInset + 18),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.schedule.routeLabel,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Departure ${widget.schedule.departureTime}',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _controller,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _isSaving ? null : _submit(),
+              decoration: const InputDecoration(
+                labelText: 'Ticket price',
+                prefixIcon: Icon(Icons.payments_outlined),
+              ),
+            ),
+            if (_validationMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _validationMessage!,
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _isSaving ? null : _submit,
+              icon: const Icon(Icons.save_outlined),
+              label: Text(_isSaving ? 'Updating...' : 'Update price'),
+            ),
           ],
         ),
       ),

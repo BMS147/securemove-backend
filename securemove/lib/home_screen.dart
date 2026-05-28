@@ -536,178 +536,212 @@ class _LocationField extends StatelessWidget {
   }
 
   Future<void> _showCityPicker(BuildContext context) async {
-    final searchController = TextEditingController(text: controller.text);
-
     final selectedCity = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        var filteredCities = List<String>.from(cities);
-
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            void filterCities(String value) {
-              final query = value.trim().toLowerCase();
-              setModalState(() {
-                filteredCities = cities
-                    .where(
-                      (city) => city.toLowerCase().contains(query),
-                    )
-                    .toList();
-              });
-            }
-
-            final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-            return Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset + 16),
-              child: Container(
-                constraints: const BoxConstraints(maxHeight: 520),
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(30),
-                  boxShadow: const [AppColors.elevatedShadow],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 46,
-                          height: 46,
-                          decoration: BoxDecoration(
-                            color: AppColors.brandTint,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Icon(icon, color: AppColors.brandPrimary),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Choose $label city',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Search and pick a route point from the list below.',
-                                style: TextStyle(
-                                  color: AppColors.textSecondary,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: searchController,
-                      autofocus: true,
-                      onChanged: filterCities,
-                      decoration: InputDecoration(
-                        hintText: 'Search city',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        suffixIcon: searchController.text.isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  searchController.clear();
-                                  filterCities('');
-                                },
-                                icon: const Icon(Icons.close_rounded),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Flexible(
-                      child: filteredCities.isEmpty
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(vertical: 36),
-                                child: Text(
-                                  'No matching cities found.',
-                                  style: TextStyle(
-                                    color: AppColors.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : ListView.separated(
-                              shrinkWrap: true,
-                              itemCount: filteredCities.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final city = filteredCities[index];
-                                final isSelected = city == controller.text;
-
-                                return Material(
-                                  color: isSelected
-                                      ? AppColors.brandTint
-                                      : AppColors.brandWash,
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(20),
-                                    onTap: () =>
-                                        Navigator.of(sheetContext).pop(city),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 14,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            isSelected
-                                                ? Icons.check_circle_rounded
-                                                : Icons.location_city_rounded,
-                                            color: AppColors.brandPrimary,
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Text(
-                                              city,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (_) => _CityPickerSheet(
+        label: label,
+        icon: icon,
+        cities: cities,
+        selectedCity: controller.text,
+      ),
     );
-
-    searchController.dispose();
 
     if (selectedCity != null) {
       controller.text = selectedCity;
       onChanged();
     }
+  }
+}
+
+class _CityPickerSheet extends StatefulWidget {
+  const _CityPickerSheet({
+    required this.label,
+    required this.icon,
+    required this.cities,
+    required this.selectedCity,
+  });
+
+  final String label;
+  final IconData icon;
+  final List<String> cities;
+  final String selectedCity;
+
+  @override
+  State<_CityPickerSheet> createState() => _CityPickerSheetState();
+}
+
+class _CityPickerSheetState extends State<_CityPickerSheet> {
+  late final TextEditingController _searchController;
+  late List<String> _filteredCities;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController(text: widget.selectedCity);
+    _filteredCities = List<String>.from(widget.cities);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filterCities(String value) {
+    final query = value.trim().toLowerCase();
+    setState(() {
+      _filteredCities = widget.cities
+          .where((city) => city.toLowerCase().contains(query))
+          .toList();
+    });
+  }
+
+  void _selectCity(String city) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    Navigator.of(context).pop(city);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset + 16),
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 520),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(30),
+          boxShadow: const [AppColors.elevatedShadow],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandTint,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Icon(widget.icon, color: AppColors.brandPrimary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Choose ${widget.label} city',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        'Search and pick a route point from the list below.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            TextField(
+              controller: _searchController,
+              autofocus: true,
+              onChanged: _filterCities,
+              decoration: InputDecoration(
+                hintText: 'Search city',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _searchController.clear();
+                          _filterCities('');
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: _filteredCities.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 36),
+                        child: Text(
+                          'No matching cities found.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _filteredCities.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final city = _filteredCities[index];
+                        final isSelected = city == widget.selectedCity;
+
+                        return Material(
+                          color: isSelected
+                              ? AppColors.brandTint
+                              : AppColors.brandWash,
+                          borderRadius: BorderRadius.circular(20),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => _selectCity(city),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isSelected
+                                        ? Icons.check_circle_rounded
+                                        : Icons.location_city_rounded,
+                                    color: AppColors.brandPrimary,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      city,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

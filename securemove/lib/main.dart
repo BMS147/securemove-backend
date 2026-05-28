@@ -112,76 +112,71 @@ class _FallbackErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return ColoredBox(
       color: const Color(0xFFF4F7FB),
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Container(
-              padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x100F2554),
-                    blurRadius: 28,
-                    offset: Offset(0, 16),
-                  ),
-                ],
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEFF4FF),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: const Icon(
-                      Icons.error_outline_rounded,
-                      color: Color(0xFF2A54C6),
-                      size: 34,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Something went wrong',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'The app hit an unexpected problem. Please go back and try again.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Color(0xFF5E6C87),
-                      height: 1.4,
-                    ),
-                  ),
-                  // In debug builds show the actual exception so it can be
-                  // diagnosed without needing to read the device log.
-                  if (kDebugMode) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      details.exceptionAsString(),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFFEF4444),
-                        fontFamily: 'monospace',
-                        height: 1.4,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: DefaultTextStyle(
+                  style: const TextStyle(color: Color(0xFF0F172A)),
+                  textAlign: TextAlign.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: Color(0xFF2A54C6),
+                        size: 32,
                       ),
-                    ),
-                  ],
-                ],
+                      const SizedBox(height: 10),
+                      const Text(
+                        'This section had a problem',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Go back or retry the action.',
+                        style: TextStyle(
+                          color: Color(0xFF5E6C87),
+                          height: 1.35,
+                        ),
+                      ),
+                      if (Navigator.canPop(context)) ...[
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          label: const Text('Go back'),
+                        ),
+                      ],
+                      if (kDebugMode) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          details.exceptionAsString(),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFFEF4444),
+                            fontFamily: 'monospace',
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
