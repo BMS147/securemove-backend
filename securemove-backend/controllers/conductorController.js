@@ -12,6 +12,7 @@ async function currentConductor(req, res) {
   }
 
   const trip = await findTodayAssignedTrip(pool, conductor.conductor_id);
+  const assignedTrips = await findTodayAssignedTrips(conductor.conductor_id);
   return res.json({
     conductor: {
       ...conductor,
@@ -19,6 +20,8 @@ async function currentConductor(req, res) {
       name: conductor.full_name,
     },
     assignedTrip: trip,
+    assignedTrips,
+    assignedTripCount: assignedTrips.length,
     trip,
     message: trip ? 'Assigned trip loaded' : 'No trip assigned for today',
   });
@@ -31,9 +34,12 @@ async function trip(req, res) {
   }
 
   const assignedTrip = await findTodayAssignedTrip(pool, conductor.conductor_id);
+  const assignedTrips = await findTodayAssignedTrips(conductor.conductor_id);
   if (!assignedTrip) {
     return res.json({
       trip: null,
+      assignedTrips,
+      assignedTripCount: assignedTrips.length,
       boardingList: [],
       boarded: 0,
       total: 0,
@@ -54,6 +60,8 @@ async function trip(req, res) {
   const stats = await scanStats(conductor.conductor_id, assignedTrip.trip_id);
   return res.json({
     trip: assignedTrip,
+    assignedTrips,
+    assignedTripCount: assignedTrips.length,
     boardingList: result.rows.map((item) => ({
       seatNumber: item.seat_number,
       boarded: item.status === 'used',
@@ -191,6 +199,23 @@ async function findConductor(req) {
     [req.user.email]
   );
   return result.rows[0] ?? null;
+}
+
+async function findTodayAssignedTrips(conductorId) {
+  const result = await pool.query(
+    `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+            rs.origin, rs.destination, b.registration_number, b.capacity
+     FROM trips tr
+     LEFT JOIN route_schedules rs ON rs.schedule_id = tr.schedule_id
+     LEFT JOIN buses b ON b.bus_id = tr.bus_id
+     WHERE tr.conductor_id = $1
+       AND tr.departure_time::date = CURRENT_DATE
+       AND tr.status IN ('scheduled', 'boarding', 'BOARDING', 'DEPARTED')
+     ORDER BY tr.departure_time ASC`,
+    [conductorId]
+  );
+
+  return result.rows;
 }
 
 async function scanStats(conductorId, tripId) {

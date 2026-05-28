@@ -42,6 +42,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
   Map<String, dynamic>? _conductor;
   Map<String, dynamic>? _trip;
   Map<String, dynamic>? _result;
+  int _assignedTripCount = 0;
   Map<String, dynamic> _stats = const {
     'scans': 0,
     'valid': 0,
@@ -89,6 +90,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
         _conductor = profile['conductor'] as Map<String, dynamic>?;
         _trip = (tripData['assignedTrip'] ?? tripData['trip'])
             as Map<String, dynamic>?;
+        _assignedTripCount = tripData['assignedTripCount'] as int? ?? 0;
         _boarded = tripData['boarded'] as int? ?? 0;
         _total = tripData['total'] as int? ?? 0;
         _stats = _readStats(tripData['stats']);
@@ -223,6 +225,7 @@ class _ConductorScannerScreenState extends State<ConductorScannerScreen>
                     _OfficerHeader(
                       conductor: _conductor,
                       trip: _trip,
+                      assignedTripCount: _assignedTripCount,
                       error: _error,
                       scannerState: _scannerState,
                       onLogout: _logout,
@@ -296,6 +299,7 @@ class _OfficerHeader extends StatelessWidget {
   const _OfficerHeader({
     required this.conductor,
     required this.trip,
+    required this.assignedTripCount,
     required this.error,
     required this.scannerState,
     required this.onLogout,
@@ -303,6 +307,7 @@ class _OfficerHeader extends StatelessWidget {
 
   final Map<String, dynamic>? conductor;
   final Map<String, dynamic>? trip;
+  final int assignedTripCount;
   final String? error;
   final _ScannerState scannerState;
   final VoidCallback onLogout;
@@ -315,7 +320,15 @@ class _OfficerHeader extends StatelessWidget {
                 DateTime.now(),
           )
         : 'No time';
-    final badge = conductor?['license_number'] ?? conductor?['id'] ?? 'Pending';
+    final badge = conductor?['badge_number'] ??
+        conductor?['license_number'] ??
+        conductor?['id'] ??
+        'Pending';
+    final tripSummary = trip == null
+        ? 'No trip assigned for today - contact your supervisor'
+        : assignedTripCount > 1
+            ? '$assignedTripCount trips assigned today | Scan validates the ticket trip ID'
+            : '${trip?['origin']} -> ${trip?['destination']} | ${trip?['registration_number'] ?? 'Bus pending'} | $departure';
 
     return Container(
       width: double.infinity,
@@ -363,9 +376,7 @@ class _OfficerHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  trip == null
-                      ? 'No trip assigned for today - contact your supervisor'
-                      : '${trip?['origin']} -> ${trip?['destination']} | ${trip?['registration_number'] ?? 'Bus pending'} | $departure',
+                  tripSummary,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
