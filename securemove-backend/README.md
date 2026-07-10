@@ -50,6 +50,8 @@ The application was designed to improve cybersecurity in Zambia's transport sect
 ### Payment
 
 - Stripe Payment Sheet (Test Mode)
+- Airtel mobile money 
+- MTN mobile money
 
 ---
 
