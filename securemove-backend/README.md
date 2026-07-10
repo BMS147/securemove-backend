@@ -1,3 +1,161 @@
+# SecureMove
+
+SecureMove is a secure mobile ticketing application developed as a final-year Bachelor of Computer Science project at Mulungushi University.
+
+The application was designed to improve cybersecurity in Zambia's transport sector by providing a secure platform for purchasing, managing and validating digital bus tickets while reducing ticket fraud and protecting passenger information.
+
+---
+
+## Features
+
+- Secure user registration and login
+- Password hashing using bcrypt
+- JSON Web Token (JWT) authentication
+- Role-Based Access Control (RBAC)
+- Secure RESTful API
+- Bus search and ticket booking
+- QR-code ticket generation and validation
+- Stripe payment integration (Test Mode)
+- PostgreSQL database hosted on Supabase
+- Transaction auditing
+- Secure backend architecture
+
+---
+
+## Technology Stack
+
+### Frontend
+
+- Flutter
+- Dart
+
+### Backend
+
+- Node.js
+- Express.js
+
+### Database
+
+- PostgreSQL
+- Supabase
+
+### Security
+
+- JWT Authentication
+- bcrypt Password Hashing
+- Role-Based Access Control
+- Environment Variables
+- Secure REST APIs
+
+### Payment
+
+- Stripe Payment Sheet (Test Mode)
+
+---
+
+## Project Structure
+
+```
+securemove-backend/
+│
+├── routes/
+├── middleware/
+├── services/
+├── controllers/
+├── models/
+├── utils/
+├── database/
+├── app.js
+└── server.js
+```
+
+---
+
+## Installation
+
+### Clone the repository
+
+```bash
+git clone https://github.com/BMS147/securemove-backend.git
+```
+
+### Install dependencies
+
+```bash
+npm install
+```
+
+### Create a .env file
+
+Example:
+
+```env
+DATABASE_URL=your_database_url
+JWT_SECRET=your_secret_key
+STRIPE_SECRET_KEY=your_stripe_secret
+```
+
+### Start the server
+
+```bash
+npm start
+```
+
+---
+
+## API
+
+Authentication
+
+```
+POST /auth/register
+POST /auth/login
+```
+
+Payments
+
+```
+POST /payments/create-intent
+```
+
+---
+
+## Security Considerations
+
+SecureMove follows secure software development practices by:
+
+- Never storing passwords in plain text
+- Hashing passwords using bcrypt
+- Using JWT for authentication
+- Protecting sensitive configuration using environment variables
+- Separating frontend and backend services
+- Restricting access using role-based authorization
+
+---
+
+## Future Improvements
+
+- Email Notifications
+- Push Notifications
+- Ticket Expiry Automation
+- Fraud Detection Enhancements
+
+---
+
+## Author
+
+**Blessed Mwangala Simonda**
+
+Bachelor of Science in Computer Science
+
+Mulungushi University
+
+GitHub
+
+https://github.com/BMS147
+
+
+
 # SecureMove Backend
 
 This backend is ready to deploy on Render with:
