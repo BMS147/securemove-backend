@@ -36,18 +36,34 @@ async function sendOtpEmail({ to, code, purpose, name = 'SecureMove user' }) {
     host: smtpHost,
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === 'true',
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 15000),
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 15000),
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
     auth: {
       user: smtpUser,
       pass: smtpPass,
     },
   });
 
-  const info = await transporter.sendMail({
-    from: smtpFrom,
-    to,
-    subject,
-    text,
-  });
+  let info;
+  try {
+    info = await transporter.sendMail({
+      from: smtpFrom,
+      to,
+      subject,
+      text,
+    });
+  } catch (error) {
+    console.error(
+      `[OTP EMAIL ERROR] ${purpose} to ${to} via ${smtpHost}:${process.env.SMTP_PORT || 587} failed: ${error.message}`
+    );
+    console.warn(`[DEV OTP] ${purpose} for ${to}: ${code}`);
+    return {
+      delivered: false,
+      devMode: true,
+      error: error.message,
+    };
+  }
 
   console.log(
     `[OTP EMAIL] ${purpose} to ${to} accepted=${JSON.stringify(info.accepted || [])} rejected=${JSON.stringify(info.rejected || [])} messageId=${info.messageId || 'none'}`
