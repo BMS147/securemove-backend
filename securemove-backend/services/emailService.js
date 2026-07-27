@@ -42,14 +42,24 @@ async function sendOtpEmail({ to, code, purpose, name = 'SecureMove user' }) {
     },
   });
 
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: smtpFrom,
     to,
     subject,
     text,
   });
 
-  return { delivered: true, devMode: false };
+  console.log(
+    `[OTP EMAIL] ${purpose} to ${to} accepted=${JSON.stringify(info.accepted || [])} rejected=${JSON.stringify(info.rejected || [])} messageId=${info.messageId || 'none'}`
+  );
+
+  return {
+    delivered: true,
+    devMode: false,
+    accepted: info.accepted || [],
+    rejected: info.rejected || [],
+    messageId: info.messageId || null,
+  };
 }
 
 module.exports = {

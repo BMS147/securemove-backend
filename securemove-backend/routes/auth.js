@@ -73,6 +73,7 @@ router.post('/register', async (req, res) => {
     const existingUser = await pool.query('SELECT user_id FROM users WHERE email = $1', [normalizedEmail]);
 
     if (existingUser.rows.length > 0) {
+      console.warn(`[AUTH REGISTER] Duplicate email ${normalizedEmail} user_id=${existingUser.rows[0].user_id}`);
       await recordAuditEvent({
         eventType: 'register_failed',
         status: 'duplicate_email',
@@ -330,11 +331,14 @@ router.post('/password/forgot', async (req, res) => {
   try {
     const user = await getUserByEmail(normalizedEmail);
     if (user) {
+      console.log(`[AUTH FORGOT] Password reset requested for ${normalizedEmail}; user_id=${user.user_id}`);
       await createAndSendOtp({
         user,
         purpose: 'password_reset',
         req,
       });
+    } else {
+      console.warn(`[AUTH FORGOT] Password reset requested for ${normalizedEmail}; no matching user`);
     }
 
     return res.json({
@@ -459,6 +463,10 @@ async function createAndSendOtp({ user, purpose, req }) {
     purpose,
     name: user.name,
   });
+
+  console.log(
+    `[AUTH OTP] purpose=${purpose} email=${user.email} user_id=${user.user_id} delivered=${delivery.delivered} devMode=${delivery.devMode}`
+  );
 
   await recordAuditEvent({
     eventType: purpose === 'password_reset' ? 'password_reset_code_sent' : 'email_verification_code_sent',
