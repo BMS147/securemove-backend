@@ -22,6 +22,9 @@ class TicketScreen extends StatelessWidget {
     required this.bus,
     required this.method,
     this.bookingReference,
+    this.signedQrPayload,
+    this.ticketNumber,
+    this.seatNumber,
     this.travelDate,
     this.ticketCount = 1,
   });
@@ -29,6 +32,9 @@ class TicketScreen extends StatelessWidget {
   final Bus bus;
   final String method;
   final String? bookingReference;
+  final String? signedQrPayload;
+  final String? ticketNumber;
+  final String? seatNumber;
   final DateTime? travelDate;
   final int ticketCount;
 
@@ -54,6 +60,11 @@ class TicketScreen extends StatelessWidget {
       '${_safeCode(bus.origin)}-${_safeCode(bus.destination)}'.toUpperCase();
 
   String get ticketData {
+    final signedPayload = signedQrPayload?.trim();
+    if (signedPayload != null && signedPayload.isNotEmpty) {
+      return signedPayload;
+    }
+
     return Uri(
       scheme: 'https',
       host: 'securemove.app',
@@ -113,6 +124,8 @@ class TicketScreen extends StatelessWidget {
                         method: method,
                         ticketReference: ticketReference,
                         ticketData: ticketData,
+                        ticketNumber: ticketNumber,
+                        seatNumber: seatNumber,
                         routeCode: _routeCode,
                       ),
                       const SizedBox(height: 22),
@@ -300,6 +313,8 @@ class _BoardingPass extends StatelessWidget {
     required this.method,
     required this.ticketReference,
     required this.ticketData,
+    required this.ticketNumber,
+    required this.seatNumber,
     required this.routeCode,
   });
 
@@ -309,6 +324,8 @@ class _BoardingPass extends StatelessWidget {
   final String method;
   final String ticketReference;
   final String ticketData;
+  final String? ticketNumber;
+  final String? seatNumber;
   final String routeCode;
 
   @override
@@ -349,6 +366,10 @@ class _BoardingPass extends StatelessWidget {
                   ticketCount == 1 ? 'Ticket' : 'Tickets',
                   '$ticketCount',
                 ),
+                if (ticketNumber != null && ticketNumber!.isNotEmpty)
+                  _Row('Ticket number', ticketNumber!),
+                if (seatNumber != null && seatNumber!.isNotEmpty)
+                  _Row('Seat', seatNumber!),
                 _Row('Price', bus.price),
                 _Row('Payment', method),
               ],

@@ -16,10 +16,20 @@ services:
         generateValue: true
       - key: TICKET_SECRET
         generateValue: true
-      - key: STRIPE_SECRET_KEY
-        sync: false
+      - key: OTP_SECRET
+        generateValue: true
       - key: MOBILE_MONEY_MODE
         value: lenco
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
       - key: LENCO_PUBLIC_KEY
         sync: false
       - key: LENCO_SECRET_KEY

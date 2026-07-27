@@ -193,7 +193,7 @@ Do not add Airtel credentials yet. With mock mode enabled:
 Example local Flutter run:
 
 ```powershell
-flutter run --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=PAYMENT_API_BASE_URL=http://localhost:3000 --dart-define=STRIPE_PUBLISHABLE_KEY=pk_test_your_key
+flutter run --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=PAYMENT_API_BASE_URL=http://localhost:3000
 ```
 
 For Android emulator, use `http://10.0.2.2:3000` instead of `http://localhost:3000`.
@@ -206,8 +206,7 @@ For Android emulator, use `http://10.0.2.2:3000` instead of `http://localhost:30
 4. Render will read [render.yaml](./render.yaml) and create:
    - `securemove-backend`
    - `securemove-db`
-5. When prompted, paste your Stripe test secret key for `STRIPE_SECRET_KEY`.
-6. Finish the deploy and wait for the health check on `/` to pass.
+5. Finish the deploy and wait for the health check on `/` to pass.
 
 Render uses `preDeployCommand: npm run db:init`, which creates the required tables automatically.
 
@@ -215,7 +214,6 @@ Render uses `preDeployCommand: npm run db:init`, which creates the required tabl
 
 - `DATABASE_URL`
 - `JWT_SECRET`
-- `STRIPE_SECRET_KEY`
 - `MOBILE_MONEY_MODE=mock` for development
 
 `DATABASE_URL` is wired automatically from Render Postgres in `render.yaml`.
@@ -240,7 +238,7 @@ Use `AIRTEL_ENVIRONMENT_MODE=production` only after Airtel enables production ac
 After deploy, point Flutter to your hosted backend URL:
 
 ```powershell
-flutter run --dart-define=API_BASE_URL=https://YOUR-RENDER-URL.onrender.com --dart-define=PAYMENT_API_BASE_URL=https://YOUR-RENDER-URL.onrender.com --dart-define=STRIPE_PUBLISHABLE_KEY=pk_test_your_key
+flutter run --dart-define=API_BASE_URL=https://YOUR-RENDER-URL.onrender.com --dart-define=PAYMENT_API_BASE_URL=https://YOUR-RENDER-URL.onrender.com
 ```
 
 ## Notes

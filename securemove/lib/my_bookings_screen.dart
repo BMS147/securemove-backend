@@ -303,7 +303,7 @@ class _BookingCard extends StatelessWidget {
           if ((booking.companyName ?? '').isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              booking.companyName!,
+              booking.companyName ?? '',
               style: const TextStyle(
                 color: AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
@@ -322,7 +322,7 @@ class _BookingCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  booking.departureTime!,
+                  booking.departureTime ?? '',
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 13,

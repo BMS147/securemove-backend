@@ -212,7 +212,7 @@ class _ProfileHero extends StatelessWidget {
                 icon: Icons.confirmation_number_outlined,
                 label: profile?.userId == null
                     ? 'Account ready'
-                    : 'User #${profile!.userId}',
+                    : 'User #${profile?.userId}',
               ),
             ],
           ),

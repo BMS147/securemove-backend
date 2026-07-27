@@ -6,10 +6,15 @@ import 'auth_service.dart';
 import 'booking_service.dart';
 import 'bus.dart';
 import 'mobile_money_service.dart';
-import 'stripe_payment_service.dart';
 import 'theme/app_colors.dart';
 import 'ticket_screen.dart';
 import 'widgets/error_banner.dart';
+
+class PaymentException implements Exception {
+  const PaymentException(this.message);
+
+  final String message;
+}
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key, required this.bus});
@@ -26,7 +31,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   int _ticketCount = 1;
 
   // ── Processing state ───────────────────────────────────────────────────────
-  bool _isProcessingCard = false;
   bool _isProcessingMobile = false;
   String? _activeMobileMethod;
   bool _processingDialogVisible = false;
@@ -50,7 +54,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   String? _momoError;
 
   final _mobileMoney = MobileMoneyService.instance;
-  final _stripe = StripePaymentService.instance;
 
   @override
   void initState() {
@@ -161,55 +164,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   // ── Payment entry points ───────────────────────────────────────────────────
-
-  Future<void> _onPayWithCard() async {
-    if (!_stripe.isReady) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_stripe.missingConfigurationMessage)),
-      );
-      return;
-    }
-
-    setState(() => _isProcessingCard = true);
-    try {
-      if (widget.bus.hasLiveTripId && _activeBookingRef == null) {
-        await _ensureBooking();
-      }
-      await _stripe.payForBus(
-        widget.bus,
-        amount: _total,
-        ticketCount: _ticketCount,
-        travelDate: _travelDate,
-      );
-      final ticket = await _loadSignedTicket(_activeBookingId);
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => TicketScreen(
-            bus: widget.bus,
-            bookingReference: _activeBookingRef,
-            signedQrPayload: ticket.qrCodeHash,
-            ticketNumber: ticket.ticketNumber,
-            seatNumber: ticket.seatNumber,
-            method: 'Credit / Debit Card',
-            travelDate: _travelDate,
-            ticketCount: _ticketCount,
-          ),
-        ),
-      );
-    } on PaymentException catch (e) {
-      await _cancelActiveBooking();
-      if (!mounted) return;
-      _showError(e.message);
-    } catch (e) {
-      await _cancelActiveBooking();
-      if (!mounted) return;
-      _showError('Card payment failed. Please try again.');
-    } finally {
-      if (mounted) setState(() => _isProcessingCard = false);
-    }
-  }
 
   Future<void> _onPayWithMobile(String method) async {
     final phone = await _collectPhone(method);
@@ -798,12 +752,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 momoLoading: _momoLoading,
                 momoError: _momoError,
                 momoConfig: _momoConfig,
-                stripe: _stripe,
-                isProcessingCard: _isProcessingCard,
                 isProcessingMobile: _isProcessingMobile,
                 activeMobileMethod: _activeMobileMethod,
                 isMomoEnabled: _isMomoMethodEnabled,
-                onPayWithCard: _onPayWithCard,
                 onPayWithMobile: _onPayWithMobile,
               ),
             ],
@@ -1205,24 +1156,18 @@ class _PaymentMethodsSection extends StatelessWidget {
     required this.momoLoading,
     required this.momoError,
     required this.momoConfig,
-    required this.stripe,
-    required this.isProcessingCard,
     required this.isProcessingMobile,
     required this.activeMobileMethod,
     required this.isMomoEnabled,
-    required this.onPayWithCard,
     required this.onPayWithMobile,
   });
 
   final bool momoLoading;
   final String? momoError;
   final MobileMoneyConfig? momoConfig;
-  final StripePaymentService stripe;
-  final bool isProcessingCard;
   final bool isProcessingMobile;
   final String? activeMobileMethod;
   final bool Function(String method) isMomoEnabled;
-  final VoidCallback onPayWithCard;
   final Future<void> Function(String method) onPayWithMobile;
 
   @override
@@ -1233,7 +1178,7 @@ class _PaymentMethodsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Choose payment method',
+          'Pay with mobile money',
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w800,
@@ -1242,7 +1187,7 @@ class _PaymentMethodsSection extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Select how you would like to pay for your ticket.',
+          'Choose your mobile money provider to complete this ticket.',
           style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 14),
@@ -1315,20 +1260,6 @@ class _PaymentMethodsSection extends StatelessWidget {
           const SizedBox(height: 12),
         ],
 
-        // Card payment
-        _MethodTile(
-          icon: Icons.credit_card_rounded,
-          accent: AppColors.successTint,
-          title: 'Credit / Debit Card',
-          subtitle: stripe.isReady
-              ? 'Pay securely by card via Stripe'
-              : 'Add your Stripe key to enable card payments',
-          enabled: stripe.isReady && !isProcessingCard && !isProcessingMobile,
-          loading: isProcessingCard,
-          onTap: stripe.isReady && !isProcessingCard && !isProcessingMobile
-              ? onPayWithCard
-              : null,
-        ),
       ],
     );
   }

@@ -96,10 +96,17 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
+      if (error.code == 'EMAIL_NOT_VERIFIED') {
+        await _openVerifyEmail(_emailController.text);
+        return;
+      }
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message)),
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('Unexpected login error: $error');
+      debugPrintStack(stackTrace: stackTrace);
       if (!mounted) {
         return;
       }
@@ -112,6 +119,23 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  Future<void> _openVerifyEmail(String email) async {
+    final verified = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VerifyEmailScreen(email: email.trim().toLowerCase()),
+      ),
+    );
+
+    if (!mounted || verified != true) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Email verified. You can log in now.')),
+    );
   }
 
   Widget _nextScreenFor(UserProfile? profile) {
@@ -146,6 +170,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Account created. Please log in.')),
+    );
+  }
+
+  Future<void> _openForgotPassword() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ForgotPasswordScreen(
+          initialEmail: _emailController.text.trim().toLowerCase(),
+        ),
+      ),
     );
   }
 
@@ -238,7 +273,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {},
+                      onPressed: _isSubmitting ? null : _openForgotPassword,
                       child: const Text('Forgot password?'),
                     ),
                   ),
@@ -374,7 +409,17 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
         return;
       }
 
-      Navigator.pop(context, _emailController.text.trim().toLowerCase());
+      final email = _emailController.text.trim().toLowerCase();
+      final verified = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
+      );
+
+      if (!mounted || verified != true) {
+        return;
+      }
+
+      Navigator.pop(context, email);
     } on AuthException catch (error) {
       if (!mounted) {
         return;
@@ -547,6 +592,391 @@ class _CreateAccountScreenState extends State<CreateAccountScreen> {
   }
 }
 
+class VerifyEmailScreen extends StatefulWidget {
+  const VerifyEmailScreen({super.key, required this.email});
+
+  final String email;
+
+  @override
+  State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
+}
+
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _codeController = TextEditingController();
+  bool _isSubmitting = false;
+  bool _isResending = false;
+
+  @override
+  void dispose() {
+    _codeController.dispose();
+    super.dispose();
+  }
+
+  String? _validateCode(String? value) {
+    final code = (value ?? '').trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      return 'Enter the 6-digit code';
+    }
+    return null;
+  }
+
+  Future<void> _verify() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await AuthService.instance.verifyEmail(
+        email: widget.email,
+        code: _codeController.text,
+      );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _resend() async {
+    setState(() => _isResending = true);
+    try {
+      await AuthService.instance.resendEmailVerification(email: widget.email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification code sent.')),
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isResending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthScaffold(
+      showBackButton: true,
+      panel: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Verify email',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Enter the 6-digit code sent to ${widget.email}.',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextFormField(
+                  controller: _codeController,
+                  keyboardType: TextInputType.number,
+                  validator: _validateCode,
+                  maxLength: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Verification code',
+                    hintText: '------',
+                    prefixIcon: Icon(Icons.mark_email_read_outlined),
+                    counterText: '',
+                  ),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _isSubmitting ? null : _verify,
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Verify Email'),
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: TextButton(
+                    onPressed: _isResending ? null : _resend,
+                    child: Text(_isResending ? 'Sending...' : 'Resend code'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key, this.initialEmail = ''});
+
+  final String initialEmail;
+
+  @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _emailController;
+  final _codeController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _codeSent = false;
+  bool _isSubmitting = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailController = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _codeController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  String? _validateEmail(String? value) {
+    final email = value?.trim() ?? '';
+    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+$').hasMatch(email)) {
+      return 'Enter a valid email';
+    }
+    return null;
+  }
+
+  String? _validateCode(String? value) {
+    if (!_codeSent) return null;
+    if (!RegExp(r'^\d{6}$').hasMatch((value ?? '').trim())) {
+      return 'Enter the 6-digit code';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (!_codeSent) return null;
+    final password = value ?? '';
+    if (password.length < 8 ||
+        !RegExp(r'[A-Z]').hasMatch(password) ||
+        !RegExp(r'[a-z]').hasMatch(password) ||
+        !RegExp(r'[0-9]').hasMatch(password)) {
+      return 'Use 8+ chars with upper, lower, and number';
+    }
+    return null;
+  }
+
+  String? _validateConfirmPassword(String? value) {
+    if (!_codeSent) return null;
+    if (value != _passwordController.text) {
+      return 'Passwords do not match';
+    }
+    return null;
+  }
+
+  Future<void> _requestCode() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await AuthService.instance.requestPasswordReset(
+        email: _emailController.text,
+      );
+      if (!mounted) return;
+      setState(() => _codeSent = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('If the email exists, a reset code was sent.')),
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await AuthService.instance.resetPassword(
+        email: _emailController.text,
+        code: _codeController.text,
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset. You can log in now.')),
+      );
+      Navigator.pop(context);
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthScaffold(
+      showBackButton: true,
+      panel: SingleChildScrollView(
+        child: Card(
+          margin: EdgeInsets.zero,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Reset password',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Use your email to receive a secure reset code.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  TextFormField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    enabled: !_codeSent,
+                    validator: _validateEmail,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      hintText: 'you@example.com',
+                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                    ),
+                  ),
+                  if (_codeSent) ...[
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _codeController,
+                      keyboardType: TextInputType.number,
+                      validator: _validateCode,
+                      maxLength: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Reset code',
+                        hintText: '------',
+                        prefixIcon: Icon(Icons.password_rounded),
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      validator: _validatePassword,
+                      decoration: InputDecoration(
+                        labelText: 'New password',
+                        prefixIcon: const Icon(Icons.lock_outline_rounded),
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: _obscureConfirmPassword,
+                      validator: _validateConfirmPassword,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm new password',
+                        prefixIcon: const Icon(Icons.verified_user_outlined),
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(
+                            () => _obscureConfirmPassword =
+                                !_obscureConfirmPassword,
+                          ),
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _isSubmitting
+                        ? null
+                        : _codeSent
+                            ? _resetPassword
+                            : _requestCode,
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(_codeSent ? 'Reset Password' : 'Send Reset Code'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _AuthScaffold extends StatelessWidget {
   const _AuthScaffold({
     required this.panel,
@@ -679,7 +1109,7 @@ class _DesktopSplit extends StatelessWidget {
                             SizedBox(height: 14),
                             _FeatureRow(
                               icon: Icons.lock_outline_rounded,
-                              text: 'Mobile money + card payments, encrypted',
+                              text: 'Mobile money payments, encrypted',
                             ),
                             SizedBox(height: 14),
                             _FeatureRow(
@@ -1048,7 +1478,7 @@ class _SecureMoveIntro extends StatelessWidget {
                           SizedBox(height: 14),
                           _FeatureRow(
                             icon: Icons.lock_outline_rounded,
-                            text: 'Mobile money + card payments',
+                            text: 'Mobile money payments',
                           ),
                           SizedBox(height: 14),
                           _FeatureRow(

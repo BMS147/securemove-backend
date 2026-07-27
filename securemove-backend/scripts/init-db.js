@@ -66,7 +66,7 @@ const bidirectionalRoutes = [
     from: 'Lusaka',
     to: 'Kabwe',
     outbound: [
-      route('Power Tools', '12:30 PM', 'K1', 120, ['Express', 'Wi-Fi', 'USB']),
+      route('Power Tools', '06:00 AM', 'K1', 120, ['Express', 'Wi-Fi', 'USB']),
       route('Mazhandu Family Bus', '09:00 AM', 'K255', 130, ['AC', 'Comfort', 'Luggage']),
       route('Shalom', '02:00 PM', 'K260', 140, ['Window seats', 'Popular', 'On time']),
     ],
@@ -163,7 +163,7 @@ const bidirectionalRoutes = [
     from: 'Lusaka',
     to: 'Solwezi',
     outbound: [
-      route('Likili Motorways', '05:15 AM', 'K560', 700, ['North-western', 'Comfort', 'USB']),
+      route('Likili Motorways', '05:15 AM', 'K1', 700, ['North-western', 'Comfort', 'USB']),
       route('UBZ', '07:30 PM', 'K575', 720, ['Night route', 'Refreshments', 'AC']),
     ],
     inbound: [
@@ -221,7 +221,13 @@ async function runMigrations() {
   for (const file of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
     if (sql.trim()) {
-      await pool.query(sql);
+      try {
+        console.log(`Running migration ${file}`);
+        await pool.query(sql);
+      } catch (error) {
+        console.error(`Migration failed: ${file}`);
+        throw error;
+      }
     }
   }
 }
@@ -308,7 +314,9 @@ async function seedDemoUsers(companyIds) {
        SET name = EXCLUDED.name,
            password_hash = EXCLUDED.password_hash,
            role_id = EXCLUDED.role_id,
-           company_id = EXCLUDED.company_id`,
+           company_id = EXCLUDED.company_id,
+           email_verified = TRUE,
+           email_verified_at = COALESCE(users.email_verified_at, NOW())`,
       [item.name, item.email, passwordHash, item.roleId, companyId]
     );
   }

@@ -163,8 +163,8 @@ class _FeatureGrid extends StatelessWidget {
       ),
       (
         icon: Icons.payments_outlined,
-        title: 'Mobile money + cards',
-        body: 'MTN MoMo, Airtel Money, and card checkout, all in one flow.',
+        title: 'Mobile money',
+        body: 'MTN MoMo and Airtel Money payments in one flow.',
       ),
       (
         icon: Icons.support_agent_outlined,

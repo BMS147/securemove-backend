@@ -53,55 +53,41 @@ Your backend should return a JSON response with a `token` field for login, for e
 }
 ```
 
-## Stripe Test Payments
+## Mobile Money Payments
 
-The card checkout flow now uses Stripe Payment Sheet in test mode on Android and iOS.
+SecureMove now focuses on mobile money payments only. The Flutter app calls the backend mobile money endpoints for MTN MoMo, Airtel Money, mock mode, or the configured collection provider.
 
-Add your Stripe publishable test key when you run the app:
-
-```powershell
-flutter run --dart-define=STRIPE_PUBLISHABLE_KEY=pk_test_your_key
-```
-
-If your payments endpoint lives somewhere else, you can point the app at it too:
+If your payments endpoint lives somewhere else, point the app at it with `PAYMENT_API_BASE_URL`:
 
 ```powershell
-flutter run --dart-define=STRIPE_PUBLISHABLE_KEY=pk_test_your_key --dart-define=PAYMENT_API_BASE_URL=http://10.0.2.2:3000
+flutter run --dart-define=PAYMENT_API_BASE_URL=http://10.0.2.2:3000
 ```
 
-By default, the app now targets the local payments backend on port `3001`:
+For Flutter web:
 
-- Web: `http://localhost:3001`
-- Android emulator: `http://10.0.2.2:3001`
-- Other platforms: `http://localhost:3001`
+```powershell
+flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000 --dart-define=PAYMENT_API_BASE_URL=http://localhost:3000
+```
 
-The Flutter app expects a backend endpoint at `POST /payments/create-intent` that returns a Stripe PaymentIntent client secret:
+The Flutter app uses these backend endpoints:
+
+- `GET /payments/mobile-money/config`
+- `POST /payments/mobile-money/initiate`
+- `GET /payments/:paymentId/status`
+
+Example mobile money request body sent by the app:
 
 ```json
 {
-  "clientSecret": "pi_..._secret_..."
+  "bookingId": 123,
+  "provider": "airtel",
+  "phoneNumber": "0970000000",
+  "amount": 250
 }
 ```
-
-Example request body sent by the app:
-
-```json
-{
-  "amount": 2500,
-  "currency": "zmw",
-  "description": "SecureMove ticket for City Rider at 08:30"
-}
-```
-
-Use Stripe test cards while developing. The built-in help text uses:
-
-- Card number: `4242 4242 4242 4242`
-- Expiry: any future date
-- CVC: any 3 digits
-- ZIP/postal code: any value
 
 Notes:
 
-- Test mode does not create real charges.
-- Stripe mobile checkout needs a backend because your secret key must never live in the app.
-- Android has been prepared for Stripe in this repo. For iOS, run the app once from macOS to generate/install CocoaPods support before building there.
+- Use backend mock mode for local payment testing without real provider approval.
+- Android, iOS, and web builds all use the same mobile money API flow.
+- The conductor scanner is intended mainly for phone use; the passenger web app does not depend on scanner support.

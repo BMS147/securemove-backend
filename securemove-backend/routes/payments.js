@@ -29,68 +29,6 @@ const {
 
 const router = express.Router();
 
-
-router.post('/create-intent', async (req, res) => {
-  const { amount, currency = 'usd', description } = req.body ?? {};
-  const secretKey = process.env.STRIPE_SECRET_KEY;
-
-  if (!Number.isInteger(amount) || amount <= 0) {
-    return res.status(400).json({ error: 'A positive integer amount is required' });
-  }
-
-  if (typeof currency !== 'string' || currency.trim().length !== 3) {
-    return res.status(400).json({ error: 'Currency must be a 3-letter ISO code' });
-  }
-
-  if (!secretKey || secretKey === 'sk_test_your_secret_key') {
-    return res.status(500).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in .env' });
-  }
-
-  try {
-    const payload = new URLSearchParams({
-      amount: String(amount),
-      currency: currency.trim().toLowerCase(),
-    });
-
-    payload.append('automatic_payment_methods[enabled]', 'true');
-
-    if (description) {
-      payload.append('description', String(description));
-    }
-
-    const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: payload,
-    });
-
-    const stripeData = await stripeResponse.json();
-
-    if (!stripeResponse.ok) {
-      console.error('Stripe create intent error:', stripeData);
-      return res.status(stripeResponse.status).json({
-        error: stripeData.error?.message || 'Unable to create payment intent',
-        code: stripeData.error?.code,
-        param: stripeData.error?.param,
-      });
-    }
-
-    return res.status(201).json({
-      paymentIntentId: stripeData.id,
-      clientSecret: stripeData.client_secret,
-      amount: stripeData.amount,
-      currency: stripeData.currency,
-      status: stripeData.status,
-    });
-  } catch (err) {
-    console.error('Create payment intent error:', err.message);
-    return res.status(500).json({ error: 'Server error while creating payment intent' });
-  }
-});
-
 router.get('/mobile-money/config', authenticateToken, async (req, res) => {
   const mtn = getMtnConfig();
   const airtel = getAirtelConfig();

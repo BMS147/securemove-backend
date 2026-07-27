@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
 import 'auth_screens.dart';
-import 'stripe_payment_service.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -16,12 +15,6 @@ Future<void> main() async {
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
   };
-
-  try {
-    await StripePaymentService.instance.initialize();
-  } catch (_) {
-    // The app can still boot and show a helpful message in the payment UI.
-  }
 
   runApp(const SecureMoveApp());
 }

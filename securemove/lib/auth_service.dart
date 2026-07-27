@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import 'backend_config.dart';
+import 'auth_token_storage.dart';
 
 class AuthService {
   AuthService._();
@@ -19,7 +19,7 @@ class AuthService {
   }
 
   static final AuthService instance = AuthService._();
-  static const _storage = FlutterSecureStorage();
+  static const _storage = AuthTokenStorage();
   static const _tokenKey = 'secure_move_token';
   static const _emailKey = 'secure_move_email';
 
@@ -60,6 +60,56 @@ class AuthService {
     }
 
     throw AuthException(message);
+  }
+
+  Future<void> verifyEmail({
+    required String email,
+    required String code,
+  }) async {
+    await _postPublic(
+      '/auth/verify-email',
+      body: {
+        'email': _normalizeEmail(email),
+        'code': code.trim(),
+      },
+      featureName: 'Email verification',
+    );
+  }
+
+  Future<void> resendEmailVerification({
+    required String email,
+  }) async {
+    await _postPublic(
+      '/auth/verification/resend',
+      body: {'email': _normalizeEmail(email)},
+      featureName: 'Email verification',
+    );
+  }
+
+  Future<void> requestPasswordReset({
+    required String email,
+  }) async {
+    await _postPublic(
+      '/auth/password/forgot',
+      body: {'email': _normalizeEmail(email)},
+      featureName: 'Password reset',
+    );
+  }
+
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String password,
+  }) async {
+    await _postPublic(
+      '/auth/password/reset',
+      body: {
+        'email': _normalizeEmail(email),
+        'code': code.trim(),
+        'password': password,
+      },
+      featureName: 'Password reset',
+    );
   }
 
   Future<void> login({
@@ -111,7 +161,10 @@ class AuthService {
       throw const AuthException('Wrong email or password.');
     }
 
-    throw AuthException(message);
+    throw AuthException(
+      message,
+      code: _extractErrorCode(response),
+    );
   }
 
   Future<void> logout() async {
@@ -295,13 +348,60 @@ class AuthService {
     return 'Request failed with status ${response.statusCode}.';
   }
 
+  String? _extractErrorCode(http.Response response) {
+    try {
+      final body = jsonDecode(response.body);
+      if (body is Map<String, dynamic>) {
+        final code = body['code'];
+        if (code is String && code.isNotEmpty) {
+          return code;
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return null;
+  }
+
+  Future<void> _postPublic(
+    String path, {
+    required Map<String, dynamic> body,
+    required String featureName,
+  }) async {
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$_baseUrl$path'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(_requestTimeout);
+    } on TimeoutException {
+      throw AuthException('$_offlineMessage $featureName timed out.');
+    } on http.ClientException {
+      throw const AuthException(_offlineMessage);
+    }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return;
+    }
+
+    throw AuthException(
+      _extractErrorMessage(response),
+      code: _extractErrorCode(response),
+    );
+  }
+
   String _normalizeEmail(String email) => email.trim().toLowerCase();
 }
 
 class AuthException implements Exception {
-  const AuthException(this.message);
+  const AuthException(this.message, {this.code});
 
   final String message;
+  final String? code;
 }
 
 class UserProfile {
@@ -364,8 +464,9 @@ class UserProfile {
   }
 
   String get roleValue {
-    if (role != null && role!.isNotEmpty) {
-      return role!;
+    final explicitRole = role?.trim();
+    if (explicitRole != null && explicitRole.isNotEmpty) {
+      return explicitRole;
     }
 
     switch (roleId) {
