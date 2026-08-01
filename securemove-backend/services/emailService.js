@@ -18,6 +18,23 @@ async function sendOtpEmail({ to, code, purpose, name = 'SecureMove user' }) {
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
   const smtpFrom = process.env.SMTP_FROM || smtpUser;
+  const brevoApiKey = process.env.BREVO_API_KEY;
+
+  if (brevoApiKey && smtpFrom) {
+    const apiResult = await sendBrevoApiEmail({
+      apiKey: brevoApiKey,
+      from: smtpFrom,
+      to,
+      subject,
+      text,
+      purpose,
+      code,
+    });
+
+    if (apiResult.delivered) {
+      return apiResult;
+    }
+  }
 
   if (!smtpHost || !smtpUser || !smtpPass || !smtpFrom) {
     console.warn(`[DEV OTP] ${purpose} for ${to}: ${code}`);
@@ -76,6 +93,68 @@ async function sendOtpEmail({ to, code, purpose, name = 'SecureMove user' }) {
     rejected: info.rejected || [],
     messageId: info.messageId || null,
   };
+}
+
+async function sendBrevoApiEmail({
+  apiKey,
+  from,
+  to,
+  subject,
+  text,
+  purpose,
+  code,
+}) {
+  try {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          email: from,
+          name: 'SecureMove',
+        },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+      }),
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      console.error(
+        `[BREVO API ERROR] ${purpose} to ${to} failed: ${response.status} ${JSON.stringify(body)}`
+      );
+      console.warn(`[DEV OTP] ${purpose} for ${to}: ${code}`);
+      return {
+        delivered: false,
+        devMode: true,
+        error: body.message || `Brevo API returned ${response.status}`,
+      };
+    }
+
+    console.log(
+      `[BREVO API EMAIL] ${purpose} to ${to} messageId=${body.messageId || 'none'}`
+    );
+
+    return {
+      delivered: true,
+      devMode: false,
+      messageId: body.messageId || null,
+    };
+  } catch (error) {
+    console.error(`[BREVO API ERROR] ${purpose} to ${to} failed: ${error.message}`);
+    console.warn(`[DEV OTP] ${purpose} for ${to}: ${code}`);
+    return {
+      delivered: false,
+      devMode: true,
+      error: error.message,
+    };
+  }
 }
 
 module.exports = {
